@@ -517,15 +517,17 @@ function Topbar({ tab, saveState, scope, setScope, search, onSearchChange, onLog
         )}
         <button className="primaryBtn" onClick={onLog} style={S.logBtn}><IconPlus /> Log</button>
         <div style={{ position: "relative" }}>
-          <button onClick={() => setMenuOpen((o) => !o)} title="Account"
-            style={{ ...S.avatar, border: "none", cursor: "pointer", padding: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {profile?.avatar ? (
-              <img src={profile.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            ) : (
-              <span style={{ width: "100%", height: "100%", background: profile?.color || T.mint, display: "flex", alignItems: "center", justifyContent: "center", color: T.dark, fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 700 }}>
-                {initials}
-              </span>
-            )}
+          <button onClick={() => setMenuOpen((o) => !o)} title="Account" style={S.accountTrigger}>
+            {fullName && <span style={S.accountName}>{fullName}</span>}
+            <span style={{ ...S.avatar, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {profile?.avatar ? (
+                <img src={profile.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <span style={{ width: "100%", height: "100%", background: profile?.color || T.mint, display: "flex", alignItems: "center", justifyContent: "center", color: T.dark, fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 700 }}>
+                  {initials}
+                </span>
+              )}
+            </span>
           </button>
           {menuOpen && (
             <>
@@ -2456,6 +2458,11 @@ const S = {
     borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, letterSpacing: 0.2,
   },
   avatar: { width: 34, height: 34, borderRadius: "50%", background: T.mint, flexShrink: 0 },
+  accountTrigger: {
+    display: "flex", alignItems: "center", gap: 10, background: "transparent", border: "none",
+    cursor: "pointer", padding: 0, fontFamily: FONT_BODY,
+  },
+  accountName: { fontSize: 13.5, fontWeight: 600, color: T.text, whiteSpace: "nowrap" },
   avatarMenu: {
     position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 95, minWidth: 170,
     background: T.surface, border: `1px solid ${T.line}`, borderRadius: 14, padding: 6,
