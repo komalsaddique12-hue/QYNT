@@ -223,7 +223,7 @@ function RangePopover({ scope, setScope, onClose }) {
   const rightLabel = new Date(rightYear, rightMonth, 1).toLocaleString("en", { month: "long", year: "numeric" });
 
   return (
-    <div style={S.popover} onClick={(e) => e.stopPropagation()}>
+    <div className="rangePopover" style={S.popover} onClick={(e) => e.stopPropagation()}>
       <div style={S.popoverCalendars}>
         <div style={S.popoverNav}>
           <button onClick={() => shiftView(-1)} style={S.stepBtn}>‹</button>
@@ -240,7 +240,7 @@ function RangePopover({ scope, setScope, onClose }) {
             : "Click a date to set start of custom range"}
         </div>
       </div>
-      <div style={S.popoverQuick}>
+      <div className="rangePopoverQuick" style={S.popoverQuick}>
         <div style={S.kicker2}>QUICK SELECT</div>
         {QUICK_PICKS.map(([mode, label]) => (
           <button key={mode} onClick={() => quickPick(mode)}
@@ -1571,31 +1571,31 @@ function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings
           value={amount} onChange={(e) => { setAmount(e.target.value); setErr(""); }}
           style={{ ...S.input, width: "100%", fontSize: 26, fontFamily: FONT_DISPLAY, fontWeight: 700, padding: "12px 14px" }} autoFocus={!isEdit} />
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 140px", minWidth: 0 }}>
             <label style={S.label}>Date</label>
             <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)}
-              style={{ ...S.input, width: "100%" }} />
+              style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
           </div>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: "1 1 140px", minWidth: 0 }}>
             <label style={S.label}>Head category</label>
-            <select className="field" value={head} onChange={(e) => pickHead(e.target.value)} style={{ ...S.input, width: "100%" }}>
+            <select className="field" value={head} onChange={(e) => pickHead(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
               {headsForType.map((h) => <option key={h.name}>{h.name}</option>)}
             </select>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 140px", minWidth: 0 }}>
             <label style={S.label}>Wallet</label>
-            <select className="field" value={walletId} onChange={(e) => setWalletId(e.target.value)} style={{ ...S.input, width: "100%" }}>
+            <select className="field" value={walletId} onChange={(e) => setWalletId(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
               {wallets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
           {savings.length > 0 && (
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: "1 1 140px", minWidth: 0 }}>
               <label style={S.label}>Saving space</label>
-              <select className="field" value={savingSpaceId} onChange={(e) => setSavingSpaceId(e.target.value)} style={{ ...S.input, width: "100%" }}>
+              <select className="field" value={savingSpaceId} onChange={(e) => setSavingSpaceId(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
                 <option value="">None</option>
                 {savings.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -2084,39 +2084,39 @@ function ProfileFields({ profile, persistProfile, onDeleteAccount }) {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 10 }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}>
           <label style={S.label}>First name</label>
-          <input className="field" value={form.firstName} onChange={(e) => set({ firstName: e.target.value })} style={{ ...S.input, width: "100%" }} />
+          <input className="field" value={form.firstName} onChange={(e) => set({ firstName: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}>
           <label style={S.label}>Last name</label>
-          <input className="field" value={form.lastName} onChange={(e) => set({ lastName: e.target.value })} style={{ ...S.input, width: "100%" }} />
+          <input className="field" value={form.lastName} onChange={(e) => set({ lastName: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10 }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 160px", minWidth: 0 }}>
           <label style={S.label}>Sex (optional)</label>
-          <select className="field" value={form.sex} onChange={(e) => set({ sex: e.target.value })} style={{ ...S.input, width: "100%" }}>
+          <select className="field" value={form.sex} onChange={(e) => set({ sex: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
             <option value="">Prefer not to say</option>
             <option value="Male">Male</option>
             <option value="Female">Female</option>
             <option value="Other">Other</option>
           </select>
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <label style={S.label}>Date of birth (optional)</label>
-          <div style={{ display: "flex", gap: 6 }}>
-            <select className="field" value={form.dobDay} onChange={(e) => set({ dobDay: e.target.value })} style={{ ...S.input, flex: 1 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <select className="field" value={form.dobDay} onChange={(e) => set({ dobDay: e.target.value })} style={{ ...S.input, flex: "1 1 70px", minWidth: 0 }}>
               <option value="">Day</option>
               {DOB_DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
-            <select className="field" value={form.dobMonth} onChange={(e) => set({ dobMonth: e.target.value })} style={{ ...S.input, flex: 1.4 }}>
+            <select className="field" value={form.dobMonth} onChange={(e) => set({ dobMonth: e.target.value })} style={{ ...S.input, flex: "1.4 1 90px", minWidth: 0 }}>
               <option value="">Month</option>
               {MONTH_NAMES.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
-            <select className="field" value={form.dobYear} onChange={(e) => set({ dobYear: e.target.value })} style={{ ...S.input, flex: 1 }}>
+            <select className="field" value={form.dobYear} onChange={(e) => set({ dobYear: e.target.value })} style={{ ...S.input, flex: "1 1 70px", minWidth: 0 }}>
               <option value="">Year</option>
               {DOB_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
@@ -2129,16 +2129,16 @@ function ProfileFields({ profile, persistProfile, onDeleteAccount }) {
         onChange={(e) => set({ email: e.target.value })} style={{ ...S.input, width: "100%" }} />
 
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, marginTop: 22, marginBottom: 4 }}>Localization settings</div>
-      <div style={{ display: "flex", gap: 10 }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}>
           <label style={S.label}>Account currency</label>
-          <select className="field" value={form.currency} onChange={(e) => set({ currency: e.target.value })} style={{ ...S.input, width: "100%" }}>
+          <select className="field" value={form.currency} onChange={(e) => set({ currency: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
             {CURRENCY_OPTIONS.map((c) => <option key={c}>{c}</option>)}
           </select>
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}>
           <label style={S.label}>Language</label>
-          <select className="field" value={form.language} onChange={(e) => set({ language: e.target.value })} style={{ ...S.input, width: "100%" }}>
+          <select className="field" value={form.language} onChange={(e) => set({ language: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
             {LANGUAGE_OPTIONS.map((l) => <option key={l}>{l}</option>)}
           </select>
           <div style={{ fontSize: 11, color: T.mut2, marginTop: 4 }}>Saved with your profile — the app's interface stays in English for now.</div>
@@ -2420,6 +2420,16 @@ body { margin: 0; }
 }
 .dashGrid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; }
 @media (max-width: 980px) { .dashGrid { grid-template-columns: 1fr; } }
+
+.rangePopover { max-width: calc(100vw - 24px); }
+@media (max-width: 700px) {
+  .rangePopover {
+    position: fixed !important; left: 12px !important; right: 12px !important; top: 96px !important;
+    width: auto !important; max-width: none !important; flex-direction: column !important;
+    max-height: 70vh !important; overflow-y: auto !important;
+  }
+  .rangePopoverQuick { border-left: none !important; border-top: 1px solid ${T.line}; }
+}
 `;
 
 const S = {
