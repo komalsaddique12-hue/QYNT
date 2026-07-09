@@ -17,32 +17,145 @@ const T = {
 /* ─────────────────  DEFAULT CATEGORIES  ───────────────── */
 const DEFAULT_CATS = {
   heads: [
-    { name: "Food & drinks", color: "#2E9B8F", kind: "expense" },
+    { name: "Housing & Utilities", color: "#E0A93F", kind: "expense" },
     { name: "Transportation", color: "#4A90A4", kind: "expense" },
-    { name: "Housing", color: "#E0A93F", kind: "expense" },
-    { name: "Lifestyle", color: "#A97FC0", kind: "expense" },
-    { name: "Entertainment", color: "#EF5A6F", kind: "expense" },
-    { name: "Miscellaneous", color: "#8FA88E", kind: "expense" },
+    { name: "Food & Dining", color: "#2E9B8F", kind: "expense" },
+    { name: "Health & Wellness", color: "#EF5A6F", kind: "expense" },
+    { name: "Entertainment & Leisure", color: "#9B5DE5", kind: "expense" },
+    { name: "Personal Care & Shopping", color: "#F15BB5", kind: "expense" },
+    { name: "Financial & Insurance", color: "#118AB2", kind: "expense" },
+    { name: "Education & Growth", color: "#06D6A0", kind: "expense" },
+    { name: "Family & Kids", color: "#FF8C42", kind: "expense" },
+    { name: "Gifts & Donations", color: "#E8B04B", kind: "expense" },
+    { name: "Transfers & Cash Movement", color: "#8FA88E", kind: "expense" },
+    { name: "Miscellaneous", color: "#5B8DEF", kind: "expense" },
     { name: "Income", color: "#4FB878", kind: "income" },
   ],
   subcats: {
-    "Food & drinks": ["Groceries", "Restaurant", "Food", "Coffee", "Snacks", "Drinks"],
-    Transportation: ["Petrol", "Parking", "Taxi", "Repair"],
-    Housing: ["Electricity", "Water", "Telephone", "Home supplies", "Loan", "Mama", "Papa", "Bank", "Bank Transfer"],
-    Lifestyle: ["Shopping", "Salon", "Pharmacy", "Furniture", "Child care", "Mirha", "Tickets"],
-    Entertainment: ["Subscription", "Electronics", "Entertainment"],
-    Miscellaneous: ["Gift", "Healthcare", "Miscellaneous"],
+    "Housing & Utilities": ["Rent", "Property Taxes", "Home Insurance", "Electricity/Gas", "Water/Waste", "Internet", "Home Supplies", "Furniture", "Phone"],
+    Transportation: ["Vehicle Loan", "Fuel", "Public Transit", "Taxi", "Parking", "Maintenance", "Vehicle Repair", "Car Insurance"],
+    "Food & Dining": ["Groceries", "Restaurants", "Fast Food", "Cafes", "Coffee", "Snacks", "Drinks", "Dessert", "Delivery/Takeaway", "Fruits"],
+    "Health & Wellness": ["Medical Insurance", "Doctor Visits", "Pharmacy", "Dental", "Healthcare", "Medicine", "Lab/Test", "Fitness"],
+    "Entertainment & Leisure": ["Subscriptions", "Events", "Cinema", "Swimming", "Hobbies", "Gaming", "Travel", "Activities"],
+    "Personal Care & Shopping": ["Clothing", "Shoes", "Shopping", "Grooming", "Salon", "Toiletries", "Laundry", "Personal Items"],
+    "Financial & Insurance": ["Emergency Fund", "Investments", "Debt Paydown", "Personal Loan", "Bank Charges", "Life Insurance", "Savings Allocation"],
+    "Education & Growth": ["Tuition", "School Fees", "Books", "Stationery", "Courses", "Certifications", "Career Training"],
+    "Family & Kids": ["Mother", "Father", "Wife", "Kids", "Diapers", "Baby Care", "Child Care", "Toys", "Family Support"],
+    "Gifts & Donations": ["Gifts", "Cash Gifts", "Donations", "Religious Giving", "Wedding Gifts", "Birthday Gifts"],
+    "Transfers & Cash Movement": ["Bank Transfer", "Wallet Transfer", "Cash Withdrawal", "Cash Deposit", "Cash Support", "Account Transfer"],
+    Miscellaneous: ["Unexpected", "Emergency Repairs", "Uncategorized", "Other", "One-time Expense"],
     Income: ["Salary", "Quaid Ventures", "Income"],
   },
 };
 
+/* Maps the OLD default taxonomy (pre-restructure) onto the new one above, so existing accounts can be
+   migrated in place. A subcat entry that's a plain string is renamed within the same mapped head; an
+   {head, sub} object means that subcategory actually belongs under a different new main category. */
+const CATEGORY_MIGRATION = {
+  "Food & drinks": {
+    head: "Food & Dining",
+    subs: { Groceries: "Groceries", Restaurant: "Restaurants", Food: "Fast Food", Coffee: "Coffee", Snacks: "Snacks", Drinks: "Drinks" },
+  },
+  Transportation: {
+    head: "Transportation",
+    subs: { Petrol: "Fuel", Parking: "Parking", Taxi: "Taxi", Repair: "Vehicle Repair" },
+  },
+  Housing: {
+    head: "Housing & Utilities",
+    subs: {
+      Electricity: "Electricity/Gas", Water: "Water/Waste", Telephone: "Phone", "Home supplies": "Home Supplies",
+      Loan: { head: "Financial & Insurance", sub: "Personal Loan" },
+      Mama: { head: "Family & Kids", sub: "Mother" },
+      Papa: { head: "Family & Kids", sub: "Father" },
+      Bank: { head: "Financial & Insurance", sub: "Bank Charges" },
+      "Bank Transfer": { head: "Transfers & Cash Movement", sub: "Bank Transfer" },
+    },
+  },
+  Lifestyle: {
+    head: "Personal Care & Shopping",
+    subs: {
+      Shopping: "Shopping", Salon: "Salon",
+      Pharmacy: { head: "Health & Wellness", sub: "Pharmacy" },
+      Furniture: { head: "Housing & Utilities", sub: "Furniture" },
+      "Child care": { head: "Family & Kids", sub: "Child Care" },
+      Mirha: { head: "Family & Kids", sub: "Kids" },
+      Tickets: { head: "Entertainment & Leisure", sub: "Events" },
+    },
+  },
+  Entertainment: {
+    head: "Entertainment & Leisure",
+    subs: {
+      Subscription: "Subscriptions",
+      Electronics: { head: "Personal Care & Shopping", sub: "Shopping" },
+      Entertainment: "Activities",
+    },
+  },
+  Miscellaneous: {
+    head: "Miscellaneous",
+    subs: {
+      Gift: { head: "Gifts & Donations", sub: "Gifts" },
+      Healthcare: { head: "Health & Wellness", sub: "Healthcare" },
+      Miscellaneous: "Other",
+    },
+  },
+  Income: { head: "Income", subs: {} },
+};
+/* Resolves one old (head, subcat) pair to its new location, or null if the head isn't a recognized
+   pre-restructure default (i.e. it's something the user added themselves — left untouched). */
+function resolveCategoryMigration(oldHead, oldSub) {
+  const rule = CATEGORY_MIGRATION[oldHead];
+  if (!rule) return null;
+  const subRule = rule.subs[oldSub];
+  if (!subRule) return { head: rule.head, sub: oldSub };
+  return typeof subRule === "string" ? { head: rule.head, sub: subRule } : { head: subRule.head, sub: subRule.sub };
+}
+/* Rebuilds cats/txns/budgets against the new canonical taxonomy. Custom heads/subcats the migration
+   table doesn't recognize are preserved as-is rather than dropped. */
+function migrateToNewCategoryStructure(cats, txns, budgets) {
+  const heads = DEFAULT_CATS.heads.map((h) => ({ ...h }));
+  const subcats = {};
+  Object.entries(DEFAULT_CATS.subcats).forEach(([h, list]) => { subcats[h] = [...list]; });
+  const kept = [];
+
+  cats.heads.forEach((h) => {
+    if (!CATEGORY_MIGRATION[h.name] && !heads.some((x) => x.name === h.name)) {
+      heads.push(h);
+      subcats[h.name] = subcats[h.name] || [...(cats.subcats[h.name] || [])];
+      kept.push(h.name);
+    }
+  });
+
+  const newTxns = txns.map((t) => {
+    const resolved = resolveCategoryMigration(t.head, t.cat);
+    if (!resolved) return t;
+    if (!subcats[resolved.head]) subcats[resolved.head] = [];
+    if (!subcats[resolved.head].some((s) => s.toLowerCase() === resolved.sub.toLowerCase())) subcats[resolved.head].push(resolved.sub);
+    return { ...t, head: resolved.head, cat: resolved.sub };
+  });
+
+  const seenBudgetHeads = new Set();
+  const newBudgets = [];
+  budgets.forEach((b) => { if (!CATEGORY_MIGRATION[b.head]) { newBudgets.push(b); seenBudgetHeads.add(b.head); } });
+  budgets.forEach((b) => {
+    const rule = CATEGORY_MIGRATION[b.head];
+    if (rule && !seenBudgetHeads.has(rule.head)) { newBudgets.push({ ...b, head: rule.head }); seenBudgetHeads.add(rule.head); }
+  });
+
+  return { cats: { heads, subcats }, txns: newTxns, budgets: newBudgets, kept };
+}
+
 /* ───────────────────────  HELPERS  ─────────────────────── */
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const fm = (n, dec = 0) => n.toLocaleString("en-PK", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const fm = (n, dec = 2) => n.toLocaleString("en-PK", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const money = (n, currency) => `${fm(n)} ${currency}`;
 const monthLabel = (m) => {
   const [y, mo] = m.split("-");
-  return new Date(+y, +mo - 1, 1).toLocaleString("en", { month: "short" }) + " " + y.slice(2);
+  return new Date(+y, +mo - 1, 1).toLocaleString("en", { month: "short" }) + " " + y;
 };
+/* "Jan 01, 2026" — the single date format used everywhere in the app. */
+const dateLabel = (dateStr) => new Date(dateStr + "T00:00").toLocaleDateString("en", { month: "short", day: "2-digit", year: "numeric" });
+/* Short "Jan 01" form for chart axis ticks, same month/day styling without the year. */
+const dayAxisLabel = (dateStr) => new Date(dateStr + "T00:00").toLocaleDateString("en", { month: "short", day: "2-digit" });
 const iso = (d) => d.toISOString().slice(0, 10);
 const weekBounds = (dateStr) => {
   const d = new Date(dateStr + "T00:00");
@@ -110,6 +223,11 @@ function scopeRange(s) {
   if (s.mode === "custom" && (s.from || s.to)) return [s.from || "0000-01-01", s.to || "9999-12-31"];
   return null;
 }
+/* Budgets are always a calendar-month concept — first to last day of the current month, regardless of the dashboard date filter. */
+function currentMonthRange() {
+  const now = new Date();
+  return [iso(new Date(now.getFullYear(), now.getMonth(), 1)), iso(new Date(now.getFullYear(), now.getMonth() + 1, 0))];
+}
 const inScope = (dateStr, s) => {
   const r = scopeRange(s);
   return !r || (dateStr >= r[0] && dateStr <= r[1]);
@@ -117,9 +235,464 @@ const inScope = (dateStr, s) => {
 function scopeLabel(s) {
   if (s.mode === "year" && s.year) return s.year;
   if (s.mode === "month" && s.month) return monthLabel(s.month);
-  if (s.mode === "week" && s.week) { const [a, b] = weekBounds(s.week); return `${a.slice(5)} → ${b.slice(5)}`; }
-  if (s.mode === "custom" && (s.from || s.to)) return `${s.from || "…"} → ${s.to || "…"}`;
+  if (s.mode === "week" && s.week) { const [a, b] = weekBounds(s.week); return `${dateLabel(a)} → ${dateLabel(b)}`; }
+  if (s.mode === "custom" && (s.from || s.to)) return `${s.from ? dateLabel(s.from) : "…"} → ${s.to ? dateLabel(s.to) : "…"}`;
   return "All time";
+}
+
+/* All ISO day strings between two ISO dates (inclusive). Caller caps the span to avoid runaway loops. */
+function daysInRange(fromISO, toISO) {
+  const out = [];
+  const d = new Date(fromISO + "T00:00");
+  const end = new Date(toISO + "T00:00");
+  while (d <= end) { out.push(iso(d)); d.setDate(d.getDate() + 1); }
+  return out;
+}
+/* All "YYYY-MM" month keys between two ISO dates (inclusive). */
+function monthsInRange(fromISO, toISO) {
+  const out = [];
+  let y = +fromISO.slice(0, 4), m = +fromISO.slice(5, 7);
+  const endY = +toISO.slice(0, 4), endM = +toISO.slice(5, 7);
+  while (y < endY || (y === endY && m <= endM)) {
+    out.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+/* ───────────────  DATA EXPORT (CSV / XLSX)  ─────────────── */
+const EXPORT_COLUMNS = ["Date", "Type", "Category", "Subcategory", "Note", "Wallet", "Amount", "Currency"];
+const EXPORT_COL_WIDTHS = [12, 10, 16, 16, 30, 14, 12, 10];
+function transactionsToRows(txns, wallets, currency) {
+  const walletName = (id) => wallets.find((w) => w.id === id)?.name || "";
+  return txns.map((t) => ({
+    Date: t.date,
+    Type: t.amount >= 0 ? "Income" : "Expense",
+    Category: t.head,
+    Subcategory: t.cat,
+    Note: t.note || "",
+    Wallet: walletName(t.walletId),
+    Amount: t.amount,
+    Currency: currency,
+  }));
+}
+function escapeCSVField(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function rowsToCSV(rows) {
+  const lines = [EXPORT_COLUMNS.join(",")];
+  rows.forEach((r) => lines.push(EXPORT_COLUMNS.map((c) => escapeCSVField(r[c])).join(",")));
+  return lines.join("\n");
+}
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function downloadText(text, filename, mime) {
+  downloadBlob(new Blob([text], { type: mime }), filename);
+}
+
+/* ─────  Minimal .xlsx (Open XML) writer — a real spreadsheet, not an HTML table wearing an .xls extension  ───── */
+function xmlEscape(v) {
+  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function colLetter(i) {
+  let s = "";
+  i += 1;
+  while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); }
+  return s;
+}
+function xlsxSheetXML(rows) {
+  const cols = `<cols>${EXPORT_COL_WIDTHS.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>`;
+  const headerRow = `<row r="1">${EXPORT_COLUMNS.map((c, i) =>
+    `<c r="${colLetter(i)}1" t="inlineStr" s="1"><is><t>${xmlEscape(c)}</t></is></c>`).join("")}</row>`;
+  const dataRows = rows.map((row, ri) => {
+    const r = ri + 2;
+    const cells = EXPORT_COLUMNS.map((c, i) => {
+      const ref = `${colLetter(i)}${r}`;
+      if (c === "Amount") return `<c r="${ref}"><v>${Number(row[c]) || 0}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(row[c])}</t></is></c>`;
+    }).join("");
+    return `<row r="${r}">${cells}</row>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+${cols}<sheetData>${headerRow}${dataRows}</sheetData>
+</worksheet>`;
+}
+const XLSX_STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
+<fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+<borders count="1"><border/></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0"/></cellStyleXfs>
+<cellXfs count="2"><xf numFmtId="0" fontId="0" xfId="0"/><xf numFmtId="0" fontId="1" xfId="0" applyFont="1"/></cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+const XLSX_WORKBOOK_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Transactions" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`;
+const XLSX_CONTENT_TYPES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`;
+const XLSX_RELS_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+const XLSX_WORKBOOK_RELS_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+const CRC_TABLE = (() => {
+  const table = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+function crc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+/* Zero-compression (STORE method) ZIP — all a .xlsx needs to be is a valid zip container. */
+function buildZip(files) {
+  const encoder = new TextEncoder();
+  const now = new Date();
+  const dosTime = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xFFFF;
+  const dosDate = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xFFFF;
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  files.forEach(({ name, data }) => {
+    const nameBytes = encoder.encode(name);
+    const crc = crc32(data);
+    const size = data.length;
+
+    const local = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, dosTime, true);
+    lv.setUint16(12, dosDate, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    localParts.push(local, data);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(central.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, dosTime, true);
+    cv.setUint16(14, dosDate, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += local.length + data.length;
+  });
+
+  const centralSize = centralParts.reduce((s, p) => s + p.length, 0);
+  const centralOffset = offset;
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, centralOffset, true);
+
+  return new Blob([...localParts, ...centralParts, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+function rowsToXLSXBlob(rows) {
+  const enc = new TextEncoder();
+  const files = [
+    { name: "[Content_Types].xml", data: enc.encode(XLSX_CONTENT_TYPES_XML) },
+    { name: "_rels/.rels", data: enc.encode(XLSX_RELS_XML) },
+    { name: "xl/workbook.xml", data: enc.encode(XLSX_WORKBOOK_XML) },
+    { name: "xl/_rels/workbook.xml.rels", data: enc.encode(XLSX_WORKBOOK_RELS_XML) },
+    { name: "xl/styles.xml", data: enc.encode(XLSX_STYLES_XML) },
+    { name: "xl/worksheets/sheet1.xml", data: enc.encode(xlsxSheetXML(rows)) },
+  ];
+  return buildZip(files);
+}
+
+/* ─────────────  DATA IMPORT (CSV / XLSX)  ───────────── */
+function parseCSVText(text) {
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c === "\r") { /* CRLF — the following \n closes the row */ }
+    else field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rowsToObjects(rows);
+}
+function rowsToObjects(rows) {
+  if (!rows.length) return [];
+  const headers = rows[0].map((h) => String(h ?? "").trim());
+  return rows.slice(1)
+    .filter((r) => r.some((v) => v !== undefined && v !== ""))
+    .map((r) => {
+      const obj = {};
+      headers.forEach((h, i) => { if (h) obj[h] = r[i] ?? ""; });
+      return obj;
+    });
+}
+/* Excel/Sheets date serial (days since 1899-12-30) → ISO date string. */
+function excelSerialToISO(n) {
+  return iso(new Date(Math.round((n - 25569) * 86400 * 1000)));
+}
+
+async function inflateRawDeflate(bytes) {
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("This browser can't read compressed .xlsx files — try Chrome, Edge, or a recent Safari/Firefox.");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+/* Reads the central directory of a zip so individual parts (by name) can be pulled out on demand. */
+function readZipEntries(buf) {
+  const dv = new DataView(buf);
+  const len = buf.byteLength;
+  let eocd = -1;
+  for (let i = len - 22; i >= 0 && i >= len - 22 - 65536; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("That doesn't look like a valid .xlsx file.");
+  const count = dv.getUint16(eocd + 10, true);
+  let offset = dv.getUint32(eocd + 16, true);
+  const decoder = new TextDecoder();
+  const entries = [];
+  for (let i = 0; i < count; i++) {
+    if (dv.getUint32(offset, true) !== 0x02014b50) break;
+    const method = dv.getUint16(offset + 10, true);
+    const compSize = dv.getUint32(offset + 20, true);
+    const nameLen = dv.getUint16(offset + 28, true);
+    const extraLen = dv.getUint16(offset + 30, true);
+    const commentLen = dv.getUint16(offset + 32, true);
+    const localHeaderOffset = dv.getUint32(offset + 42, true);
+    const name = decoder.decode(new Uint8Array(buf, offset + 46, nameLen));
+    entries.push({ name, method, compSize, localHeaderOffset });
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+async function readZipEntryText(buf, entries, name) {
+  const entry = entries.find((e) => e.name === name);
+  if (!entry) return null;
+  const dv = new DataView(buf);
+  const lo = entry.localHeaderOffset;
+  const nameLen = dv.getUint16(lo + 26, true);
+  const extraLen = dv.getUint16(lo + 28, true);
+  const raw = new Uint8Array(buf, lo + 30 + nameLen + extraLen, entry.compSize);
+  const bytes = entry.method === 0 ? raw : await inflateRawDeflate(raw);
+  return new TextDecoder("utf-8").decode(bytes);
+}
+function parseSharedStrings(xml) {
+  if (!xml) return [];
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  return Array.from(doc.getElementsByTagName("si")).map((si) =>
+    Array.from(si.getElementsByTagName("t")).map((t) => t.textContent).join(""));
+}
+function colIndexFromRef(ref) {
+  const letters = (ref.match(/^[A-Z]+/) || [""])[0];
+  let col = 0;
+  for (let i = 0; i < letters.length; i++) col = col * 26 + (letters.charCodeAt(i) - 64);
+  return col - 1;
+}
+function parseWorksheetRows(xml, sharedStrings) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  return Array.from(doc.getElementsByTagName("row")).map((rowEl) => {
+    const rowArr = [];
+    Array.from(rowEl.getElementsByTagName("c")).forEach((c) => {
+      const ref = c.getAttribute("r") || "";
+      const idx = ref ? colIndexFromRef(ref) : rowArr.length;
+      const type = c.getAttribute("t");
+      let value = "";
+      if (type === "inlineStr") {
+        const isEl = c.getElementsByTagName("is")[0];
+        value = isEl ? Array.from(isEl.getElementsByTagName("t")).map((t) => t.textContent).join("") : "";
+      } else {
+        const vEl = c.getElementsByTagName("v")[0];
+        const raw = vEl ? vEl.textContent : "";
+        value = type === "s" ? (sharedStrings[parseInt(raw, 10)] ?? "") : raw;
+      }
+      rowArr[idx] = value;
+    });
+    return rowArr;
+  });
+}
+async function parseXLSXFile(file) {
+  const buf = await file.arrayBuffer();
+  const entries = readZipEntries(buf);
+  const sharedStrings = parseSharedStrings(await readZipEntryText(buf, entries, "xl/sharedStrings.xml"));
+  let sheetPath = "xl/worksheets/sheet1.xml";
+  const workbookXML = await readZipEntryText(buf, entries, "xl/workbook.xml");
+  const relsXML = await readZipEntryText(buf, entries, "xl/_rels/workbook.xml.rels");
+  if (workbookXML && relsXML) {
+    const rId = new DOMParser().parseFromString(workbookXML, "application/xml").getElementsByTagName("sheet")[0]?.getAttribute("r:id");
+    const rel = rId && Array.from(new DOMParser().parseFromString(relsXML, "application/xml").getElementsByTagName("Relationship"))
+      .find((r) => r.getAttribute("Id") === rId);
+    if (rel) sheetPath = "xl/" + rel.getAttribute("Target").replace(/^\/?(xl\/)?/, "");
+  }
+  const sheetXML = await readZipEntryText(buf, entries, sheetPath);
+  if (!sheetXML) throw new Error("Couldn't find a worksheet inside this file.");
+  return rowsToObjects(parseWorksheetRows(sheetXML, sharedStrings));
+}
+async function parseImportFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".csv")) return parseCSVText(await file.text());
+  if (name.endsWith(".xlsx")) return parseXLSXFile(file);
+  throw new Error("Unsupported file type — please choose a .csv or .xlsx file.");
+}
+/* Turns parsed sheet rows (Date/Type/Category/Subcategory/Note/Wallet/Amount/Currency) into transaction
+   objects, creating any categories/subcategories the sheet references that don't exist yet. Wallet names
+   that don't match fall back to the first wallet rather than being silently dropped. */
+function buildTxnsFromImportRows(rows, cats, wallets) {
+  const heads = [...cats.heads];
+  const subcats = { ...cats.subcats };
+  const findHead = (n) => heads.find((h) => h.name.toLowerCase() === n.toLowerCase());
+  const findWallet = (n) => wallets.find((w) => w.name.toLowerCase() === n.toLowerCase());
+  /* A sheet value that isn't a known head name might still be a known subcategory of one — in that
+     case the row belongs under that subcategory's existing head, not a brand-new main category. */
+  const findHeadOwningSubcat = (n) => {
+    if (!n) return null;
+    const lower = n.toLowerCase();
+    return heads.find((h) => (subcats[h.name] || []).some((s) => s.toLowerCase() === lower)) || null;
+  };
+  const txns = [], errors = [], newHeads = [], newSubcats = [];
+  let defaultedWallets = 0;
+
+  rows.forEach((r, i) => {
+    const line = i + 2;
+    const dateRaw = String(r.Date ?? "").trim();
+    const amountRaw = String(r.Amount ?? "").trim();
+    if (!dateRaw || !amountRaw) { errors.push(`Row ${line}: missing date or amount.`); return; }
+
+    let date = dateRaw;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) { /* already the exact format we want — skip any Date() round trip to avoid timezone drift */ }
+    else if (/^\d+(\.\d+)?$/.test(dateRaw)) date = excelSerialToISO(parseFloat(dateRaw));
+    else { const d = new Date(dateRaw); if (!isNaN(d)) date = iso(d); }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push(`Row ${line}: unrecognized date "${dateRaw}".`); return; }
+
+    let amount = parseFloat(amountRaw.replace(/,/g, ""));
+    if (!isFinite(amount) || amount === 0) { errors.push(`Row ${line}: invalid amount "${amountRaw}".`); return; }
+    const typeRaw = String(r.Type ?? "").trim().toLowerCase();
+    if (typeRaw === "expense") amount = -Math.abs(amount);
+    else if (typeRaw === "income") amount = Math.abs(amount);
+
+    const categoryRaw = String(r.Category ?? "").trim();
+    const subRawInput = String(r.Subcategory ?? "").trim();
+
+    // 1. Exact match on an existing main category. 2. The value is actually a known subcategory
+    // somewhere — reuse its head instead of minting a new main category. 3. Same two checks against
+    // the Subcategory column, in case Category was blank or unrecognized. Only after all of that
+    // comes up empty do we create a brand-new main category.
+    let head = (categoryRaw && findHead(categoryRaw))
+      || (categoryRaw && findHeadOwningSubcat(categoryRaw))
+      || (subRawInput && findHead(subRawInput))
+      || (subRawInput && findHeadOwningSubcat(subRawInput))
+      || null;
+
+    if (!head && categoryRaw) {
+      head = { name: categoryRaw, color: SWATCHES[heads.length % SWATCHES.length], kind: amount >= 0 ? "income" : "expense" };
+      heads.push(head);
+      subcats[head.name] = [];
+      newHeads.push(head.name);
+    }
+    const headName = head ? head.name : (amount >= 0 ? "Income" : "Miscellaneous");
+
+    const subRaw = subRawInput || categoryRaw || headName;
+    if (!subcats[headName]) subcats[headName] = [];
+    if (!subcats[headName].some((s) => s.toLowerCase() === subRaw.toLowerCase())) {
+      subcats[headName].push(subRaw);
+      newSubcats.push(`${headName} → ${subRaw}`);
+    }
+
+    const walletRaw = String(r.Wallet ?? "").trim();
+    let wallet = walletRaw ? findWallet(walletRaw) : wallets[0];
+    if (!wallet) { wallet = wallets[0]; if (walletRaw) defaultedWallets++; }
+
+    txns.push({ id: uid(), date, head: headName, cat: subRaw, note: String(r.Note ?? "").trim(), amount, walletId: wallet?.id || null, savingSpaceId: null });
+  });
+
+  return { txns, errors, newHeads, newSubcats, defaultedWallets, cats: { heads, subcats } };
+}
+
+/* One-time cleanup for data that predates the import fix above: a main category whose name is
+   actually a subcategory of some other main category gets merged into that other category (its
+   transactions and budgets move over, and the old main category is removed). Returns null if
+   nothing needs merging. */
+function findMiscategorizedMerges(cats) {
+  const { heads, subcats } = cats;
+  const merges = [];
+  heads.forEach((h) => {
+    const owner = heads.find((other) => other.name !== h.name &&
+      (subcats[other.name] || []).some((s) => s.toLowerCase() === h.name.toLowerCase()));
+    if (owner) merges.push({ from: h.name, to: owner.name });
+  });
+  return merges.length ? merges : null;
+}
+function applyMiscategorizedMerges(merges, cats, txns, budgets) {
+  const mergeMap = new Map(merges.map((m) => [m.from.toLowerCase(), m.to]));
+  const heads = cats.heads.filter((h) => !mergeMap.has(h.name.toLowerCase()));
+  const subcats = {};
+  heads.forEach((h) => { subcats[h.name] = cats.subcats[h.name] || []; });
+
+  const newTxns = txns.map((t) => {
+    const to = mergeMap.get(t.head.toLowerCase());
+    return to ? { ...t, head: to, cat: t.head } : t;
+  });
+
+  // A budget already sitting on the surviving head wins; a merged-in budget only fills the gap
+  // if the surviving head doesn't already have one (rather than an arbitrary array-order pick).
+  const seenBudgetHeads = new Set();
+  const newBudgets = [];
+  budgets.forEach((b) => { if (!mergeMap.has(b.head.toLowerCase())) { newBudgets.push(b); seenBudgetHeads.add(b.head); } });
+  budgets.forEach((b) => {
+    if (mergeMap.has(b.head.toLowerCase())) {
+      const to = mergeMap.get(b.head.toLowerCase());
+      if (!seenBudgetHeads.has(to)) { newBudgets.push({ ...b, head: to }); seenBudgetHeads.add(to); }
+    }
+  });
+
+  return { cats: { heads, subcats }, txns: newTxns, budgets: newBudgets };
 }
 
 /* Compares a bounded scope range against the equal-length period immediately before it. */
@@ -236,7 +809,7 @@ function RangePopover({ scope, setScope, onClose }) {
         </div>
         <div style={S.popoverHint}>
           {pendingFrom
-            ? (pendingTo ? `${pendingFrom} → ${pendingTo}` : "Click a date to set end of custom range")
+            ? (pendingTo ? `${dateLabel(pendingFrom)} → ${dateLabel(pendingTo)}` : "Click a date to set end of custom range")
             : "Click a date to set start of custom range"}
         </div>
       </div>
@@ -302,11 +875,11 @@ function IconDashboard() {
     </svg>
   );
 }
-function IconSwap() {
+function IconReceipt() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 8h13M17 8l-3.5-3.5M17 8l-3.5 3.5" />
-      <path d="M20 16H7M7 16l3.5-3.5M7 16l3.5 3.5" />
+      <path d="M6 3h12v17l-2.5-1.5L13 20l-2.5-1.5L8 20l-2-1.5V3z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
     </svg>
   );
 }
@@ -321,8 +894,8 @@ function IconPlus() {
 function IconGear() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3.2" />
-      <path d="M19.4 12.9a7.4 7.4 0 000-1.8l1.8-1.5-1.8-3.1-2.2.6a7.4 7.4 0 00-1.6-.9L15.2 4h-3.4l-.4 2.2a7.4 7.4 0 00-1.6.9l-2.2-.6-1.8 3.1L7.6 11a7.4 7.4 0 000 1.8l-1.8 1.5 1.8 3.1 2.2-.6c.5.4 1 .7 1.6.9l.4 2.3h3.4l.4-2.3c.6-.2 1.1-.5 1.6-.9l2.2.6 1.8-3.1z" />
+      <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
@@ -343,11 +916,39 @@ function IconWallet() {
     </svg>
   );
 }
+function IconScale() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v18M7 21h10M5 7h6m2 0h4M5 7l-2.5 5a2.5 2.5 0 005 0L5 7zm14 0l-2.5 5a2.5 2.5 0 005 0L19 7z" />
+    </svg>
+  );
+}
+function IconArrowUp() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </svg>
+  );
+}
+function IconArrowDown() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 5v14M6 13l6 6 6-6" />
+    </svg>
+  );
+}
 function IconGauge() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 16a8 8 0 1116 0" />
       <path d="M12 16l3.5-4.5" />
+    </svg>
+  );
+}
+function IconPieChart() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12A9 9 0 1112 3v9h9z" />
     </svg>
   );
 }
@@ -385,7 +986,7 @@ function IconSpark() {
 function IconChat() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 5h16v10H8l-4 4V5z" />
+      <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
     </svg>
   );
 }
@@ -419,6 +1020,14 @@ function IconUpload() {
     </svg>
   );
 }
+function IconDownload() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 4v12M12 16l-4-4M12 16l4-4" />
+      <path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+    </svg>
+  );
+}
 function IconTrash() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -445,7 +1054,8 @@ function IconSearch() {
 /* ───────────────────────  SIDEBAR & TOPBAR  ─────────────────────── */
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", Icon: IconDashboard },
-  { key: "transactions", label: "Transactions", Icon: IconSwap },
+  { key: "transactions", label: "Transactions", Icon: IconReceipt },
+  { key: "statistics", label: "Statistics", Icon: IconPieChart },
   { key: "wallets", label: "Wallets", Icon: IconWallet },
   { key: "budgets", label: "Budgets", Icon: IconGauge },
   { key: "savings", label: "Saving spaces", Icon: IconTarget },
@@ -478,6 +1088,7 @@ function Sidebar({ tab, setTab, currency }) {
 const PAGE_COPY = {
   dashboard: "Dashboard",
   transactions: "Transactions",
+  statistics: "Statistics",
   add: "Add transaction",
   settings: "Settings",
   wallets: "Wallets",
@@ -507,8 +1118,8 @@ function Topbar({ tab, saveState, scope, setScope, search, onSearchChange, onLog
         {showFilter && <StatusBar scope={scope} setScope={setScope} />}
         <div style={S.searchWrap}>
           <IconSearch />
-          <input className="field" placeholder="Search transactions…" value={search}
-            onChange={(e) => onSearchChange(e.target.value)} style={S.searchInput} />
+          <input className="field" placeholder="Search transactions…"
+            value={search} onChange={(e) => onSearchChange(e.target.value)} style={S.searchInput} />
         </div>
         {saveState && (
           <div style={{ ...S.savePill, ...(saveState === "error" ? S.savePillError : {}) }}>
@@ -548,7 +1159,7 @@ function Topbar({ tab, saveState, scope, setScope, search, onSearchChange, onLog
   );
 }
 
-const STATUS_BAR_TABS = new Set(["dashboard", "transactions", "wallets", "budgets", "savings"]);
+const STATUS_BAR_TABS = new Set(["dashboard", "transactions", "statistics", "wallets", "savings"]);
 
 /* ───────────────────────  AUTH  ─────────────────────── */
 function AuthScreen() {
@@ -560,6 +1171,16 @@ function AuthScreen() {
   const [busy, setBusy] = useState(false);
 
   const switchMode = (m) => { setMode(m); setErr(""); setInfo(""); };
+
+  const forgotPassword = async () => {
+    setErr(""); setInfo("");
+    if (!email) { setErr("Enter your email above first, then click \"Forgot password?\"."); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    setBusy(false);
+    if (error) setErr(error.message);
+    else setInfo("Check your email for a link to reset your password.");
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -596,6 +1217,13 @@ function AuthScreen() {
           autoComplete={mode === "signup" ? "new-password" : "current-password"}
           value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...S.input, width: "100%" }} />
 
+        {mode === "login" && (
+          <button type="button" className="linkBtn" onClick={forgotPassword}
+            style={{ ...S.linkBtn, padding: 0, marginTop: 6, alignSelf: "flex-start" }}>
+            Forgot password?
+          </button>
+        )}
+
         {err && <div style={{ color: T.rose, fontSize: 12, marginTop: 8 }}>{err}</div>}
         {info && <div style={{ color: T.darkSoft, fontSize: 12, marginTop: 8 }}>{info}</div>}
 
@@ -621,6 +1249,7 @@ export default function ExpenseTracker() {
   const [settingsTab, setSettingsTab] = useState("profile");
   const [scope, setScope] = useState(defaultScope());
   const [search, setSearch] = useState("");
+  const [txnFilter, setTxnFilter] = useState(null); // { head, sub } | null — consumed once by Transactions on mount
   const [saveState, setSaveState] = useState("");
   const [editing, setEditing] = useState(null); // txn being edited
   const [addPreset, setAddPreset] = useState(null); // "income" | "expense" | null
@@ -639,14 +1268,22 @@ export default function ExpenseTracker() {
     }
     (async () => {
       const uid_ = session.user.id;
-      setWallets(await loadKey(uid_, WALLET_KEY, DEFAULT_WALLETS));
-      setBudgets(await loadKey(uid_, BUDGET_KEY, []));
-      setSavings(await loadKey(uid_, SAVING_KEY, []));
-      const loadedProfile = await loadKey(uid_, PROFILE_KEY, { ...DEFAULT_PROFILE, email: session.user.email || "" });
-      setProfile({ ...DEFAULT_PROFILE, ...loadedProfile });
-      setDailyLimit(await loadKey(uid_, DAILY_LIMIT_KEY, 0));
-      setTxns(await loadKey(uid_, TXN_KEY, []));
-      setCats(await loadKey(uid_, CAT_KEY, DEFAULT_CATS));
+      const [walletsRes, budgetsRes, savingsRes, profileRes, dailyLimitRes, txnsRes, catsRes] = await Promise.all([
+        loadKey(uid_, WALLET_KEY, DEFAULT_WALLETS),
+        loadKey(uid_, BUDGET_KEY, []),
+        loadKey(uid_, SAVING_KEY, []),
+        loadKey(uid_, PROFILE_KEY, { ...DEFAULT_PROFILE, email: session.user.email || "" }),
+        loadKey(uid_, DAILY_LIMIT_KEY, 0),
+        loadKey(uid_, TXN_KEY, []),
+        loadKey(uid_, CAT_KEY, DEFAULT_CATS),
+      ]);
+      setWallets(walletsRes);
+      setBudgets(budgetsRes);
+      setSavings(savingsRes);
+      setProfile({ ...DEFAULT_PROFILE, ...profileRes });
+      setDailyLimit(dailyLimitRes);
+      setTxns(txnsRes);
+      setCats(catsRes);
     })();
   }, [session]);
 
@@ -699,6 +1336,7 @@ export default function ExpenseTracker() {
   const goTab = (k) => { setTab(k); if (k !== "add") setAddPreset(null); };
   const handleSearchChange = (v) => { setSearch(v); if (v && tab !== "transactions") goTab("transactions"); };
   const openProfileSettings = () => { setSettingsTab("profile"); goTab("settings"); };
+  const viewSubcategoryTxns = (head, sub) => { setTxnFilter({ head, sub }); goTab("transactions"); };
 
   const resetAllData = async () => {
     await supabase.from("app_data").delete().eq("user_id", session.user.id);
@@ -738,12 +1376,16 @@ export default function ExpenseTracker() {
 
         {tab === "dashboard" && (
           <Dashboard txns={txns} catColor={catColor} cats={cats} setTab={goTab} setAddPreset={setAddPreset} scope={scope}
-            savings={savings} dailyLimit={dailyLimit} budgets={budgets} currency={profile.currency}
-            setSettingsTab={setSettingsTab} />
+            savings={savings} dailyLimit={dailyLimit} budgets={budgets} currency={profile.currency} wallets={wallets}
+            setSettingsTab={setSettingsTab} onViewSubcategory={viewSubcategoryTxns} />
         )}
         {tab === "transactions" && (
           <Transactions txns={txns} cats={cats} catColor={catColor} onEdit={setEditing} scope={scope}
-            search={search} setSearch={setSearch} />
+            search={search} setSearch={setSearch} currency={profile.currency}
+            presetFilter={txnFilter} onConsumePresetFilter={() => setTxnFilter(null)} />
+        )}
+        {tab === "statistics" && (
+          <Statistics txns={txns} cats={cats} scope={scope} currency={profile.currency} budgets={budgets} onViewSubcategory={viewSubcategoryTxns} />
         )}
         {tab === "add" && (
           <TxnForm cats={cats} presetType={addPreset} wallets={wallets} savings={savings} currency={profile.currency}
@@ -756,12 +1398,12 @@ export default function ExpenseTracker() {
             dailyLimit={dailyLimit} persistDailyLimit={persistDailyLimit}
             profile={profile} persistProfile={persistProfile}
             settingsTab={settingsTab} setSettingsTab={setSettingsTab}
-            onLogout={() => supabase.auth.signOut()} onDeleteAccount={resetAllData} />
+            onLogout={() => supabase.auth.signOut()} onResetData={resetAllData} />
         )}
-        {tab === "wallets" && <Wallets txns={txns} wallets={wallets} scope={scope} />}
-        {tab === "budgets" && <Budgets txns={txns} budgets={budgets} catColor={catColor} scope={scope} />}
-        {tab === "savings" && <SavingSpaces txns={txns} savings={savings} scope={scope} />}
-        {tab === "forecast" && <Forecast txns={txns} />}
+        {tab === "wallets" && <Wallets txns={txns} wallets={wallets} scope={scope} currency={profile.currency} />}
+        {tab === "budgets" && <Budgets txns={txns} budgets={budgets} catColor={catColor} currency={profile.currency} />}
+        {tab === "savings" && <SavingSpaces txns={txns} savings={savings} scope={scope} currency={profile.currency} />}
+        {tab === "forecast" && <Forecast txns={txns} currency={profile.currency} />}
         {tab === "vault" && (
           <ComingSoon title="Family vault" blurb="Shared budgets, goals, and visibility for everyone in your household." />
         )}
@@ -785,40 +1427,20 @@ export default function ExpenseTracker() {
 }
 
 /* ───────────────────────  DASHBOARD  ─────────────────────── */
-function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings, dailyLimit, budgets, currency, setSettingsTab }) {
+function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings, dailyLimit, budgets, currency, wallets, setSettingsTab, onViewSubcategory }) {
   const openSettings = (subTab) => { setSettingsTab(subTab); setTab("settings"); };
   const scopedTxns = txns.filter((t) => inScope(t.date, scope));
   const income = scopedTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
   const expense = scopedTxns.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0);
   const net = income + expense;
   const spentPct = income > 0 ? Math.min(100, (-expense / income) * 100) : 100;
+  const walletBalance = (wallets || []).reduce((sum, w) =>
+    sum + w.startingBalance + txns.filter((t) => t.walletId === w.id).reduce((s, t) => s + t.amount, 0), 0);
 
   const incomeChange = prevPeriodChange(txns, scope, (t) => (t.amount > 0 ? t.amount : 0));
   const expenseChangeRaw = prevPeriodChange(txns, scope, (t) => (t.amount < 0 ? -t.amount : 0));
   const expenseChange = expenseChangeRaw == null ? null : -expenseChangeRaw; // spending less shows as positive
   const netChange = prevPeriodChange(txns, scope, (t) => t.amount);
-
-  const [statTab, setStatTab] = useState("expense");
-  const expenseBreakdown = cats.heads.filter((h) => h.kind === "expense")
-    .map((h) => ({
-      name: h.name, color: h.color,
-      value: -scopedTxns.filter((t) => t.head === h.name && t.amount < 0).reduce((s, t) => s + t.amount, 0),
-    }))
-    .filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
-  const incomeBreakdown = cats.heads.filter((h) => h.kind === "income")
-    .map((h) => ({
-      name: h.name, color: h.color,
-      value: scopedTxns.filter((t) => t.head === h.name && t.amount > 0).reduce((s, t) => s + t.amount, 0),
-    }))
-    .filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
-  const donut = statTab === "income" ? incomeBreakdown : expenseBreakdown;
-  const donutTotal = statTab === "income" ? income : -expense;
-
-  const dailyTx = scopedTxns.filter((t) => t.amount < 0);
-  const dayMap = {};
-  dailyTx.forEach((t) => { dayMap[t.date] = (dayMap[t.date] || 0) - t.amount; });
-  const daily = Object.entries(dayMap).sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([d, v]) => ({ day: d.slice(5), spend: v }));
 
   const recentTx = [...scopedTxns].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
@@ -833,13 +1455,13 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
           </div>
           <div style={S.flowBarWrap}><div style={{ ...S.flowBar, width: `${spentPct}%` }} /></div>
           <div style={S.flowLegend}>
-            <span><i style={{ ...S.dot, background: "#FFB3C0" }} />Spent {fm(-expense)}</span>
-            <span><i style={{ ...S.dot, background: T.gold }} />Earned {fm(income)}</span>
+            <span><i style={{ ...S.dot, background: "#FFB3C0" }} />Spent {money(-expense, currency)}</span>
+            <span><i style={{ ...S.dot, background: T.gold }} />Earned {money(income, currency)}</span>
             <span style={{ color: "#9FCBAE" }}>{income > 0 ? `${spentPct.toFixed(0)}% of income spent` : ""}</span>
           </div>
           <div style={S.heroMiniRow}>
-            <MiniCard label="Income" value={fm(income)} color={T.gold} />
-            <MiniCard label="Expenses" value={fm(-expense)} color="#FFB3C0" />
+            <MiniCard label="Income" value={money(income, currency)} color={T.gold} />
+            <MiniCard label="Expenses" value={money(-expense, currency)} color="#FFB3C0" />
             <MiniCard label="Transactions" value={scopedTxns.length} color="#CFE9D6" />
           </div>
         </section>
@@ -856,7 +1478,7 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
               Add income
             </button>
             <button className="quickBtn" style={S.quickBtn} onClick={() => setTab("transactions")}>
-              <span style={{ ...S.quickIcon, background: T.goldSoft, color: T.gold }}><IconSwap /></span>
+              <span style={{ ...S.quickIcon, background: T.goldSoft, color: T.gold }}><IconReceipt /></span>
               Transactions
             </button>
             <button className="quickBtn" style={S.quickBtn} onClick={() => setTab("settings")}>
@@ -869,68 +1491,18 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
 
       {/* stat row */}
       <div style={S.statRow}>
-        <StatCard label="Total income" value={fm(income)} change={incomeChange} iconBg={T.mintSoft} iconColor={T.darkSoft} />
-        <StatCard label="Total expense" value={fm(-expense)} change={expenseChange} iconBg={T.roseSoft} iconColor={T.rose} />
-        <StatCard label="Net savings" value={fm(net)} valueColor={net >= 0 ? T.darkSoft : T.rose} change={netChange} iconBg={T.goldSoft} iconColor={T.gold} />
-        <DailyLimitCard txns={txns} dailyLimit={dailyLimit} onSetLimit={() => openSettings("limit")} />
+        <StatCard label="Current Wallet Balance" value={money(walletBalance, currency)} valueColor={walletBalance >= 0 ? T.darkSoft : T.rose} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconWallet} />
+        <StatCard label="Total Period Change" value={money(net, currency)} valueColor={net >= 0 ? T.darkSoft : T.rose} change={netChange} iconBg={T.goldSoft} iconColor={T.gold} icon={IconScale} />
+        <StatCard label="Total Period Expenses" value={money(-expense, currency)} change={expenseChange} iconBg={T.roseSoft} iconColor={T.rose} icon={IconArrowUp} />
+        <StatCard label="Total Period Income" value={money(income, currency)} change={incomeChange} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconArrowDown} />
       </div>
 
       {/* cashflow + statistic */}
       <div className="dashGrid" style={{ marginBottom: 20 }}>
-        <CashflowCard txns={scopedTxns} currency={currency} />
+        <CashflowCard txns={scopedTxns} currency={currency} scope={scope} />
 
-        <Card title="Statistic">
-          <div style={S.statTabs}>
-            <button onClick={() => setStatTab("income")} style={{ ...S.statTab, ...(statTab === "income" ? S.statTabActive : {}) }}>
-              Income <span style={S.statTabAmt}>({fm(income)})</span>
-            </button>
-            <button onClick={() => setStatTab("expense")} style={{ ...S.statTab, ...(statTab === "expense" ? S.statTabActive : {}) }}>
-              Expense <span style={S.statTabAmt}>({fm(-expense)})</span>
-            </button>
-          </div>
-          {donut.length === 0 ? <Empty msg={`No ${statTab} in this range.`} /> : (
-            <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
-              <div style={{ width: 180, height: 180, flexShrink: 0, position: "relative" }}>
-                {donut.length === 1 ? (
-                  // Recharts can't sweep a full 360° ring for a single 100%-share slice — draw it directly.
-                  <svg width="180" height="180" viewBox="0 0 180 180">
-                    <circle cx="90" cy="90" r="72" fill="none" stroke={donut[0].color} strokeWidth="28" />
-                  </svg>
-                ) : (
-                  <ResponsiveContainer>
-                    <PieChart>
-                      <Pie data={donut} dataKey="value" nameKey="name" innerRadius={58} outerRadius={86}
-                        paddingAngle={4} cornerRadius={10} stroke="none">
-                        {donut.map((d) => <Cell key={d.name} fill={d.color} />)}
-                      </Pie>
-                      <Tooltip content={<Tip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-                <div style={S.donutCenter}>
-                  <div style={S.donutCenterLabel}>Total {statTab}</div>
-                  <div style={S.donutCenterValue}>{fm(donutTotal)}</div>
-                </div>
-              </div>
-              <div style={{ flex: 1, minWidth: 180 }}>
-                {donut.map((d) => {
-                  const pct = donutTotal !== 0 ? (d.value / donutTotal) * 100 : 0;
-                  return (
-                    <div key={d.name} style={S.legendRow}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ ...S.pctBadge, background: d.color + "22", color: d.color }}>{pct.toFixed(0)}%</span>
-                        {d.name}
-                      </span>
-                      <span style={{ fontVariantNumeric: "tabular-nums", color: T.text, fontFamily: FONT_DISPLAY, fontWeight: 700 }}>
-                        {fm(d.value)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </Card>
+        <StatisticCard scopedTxns={scopedTxns} cats={cats} income={income} expense={expense} currency={currency}
+          onViewSubcategory={onViewSubcategory} limit={5} onViewMore={() => setTab("statistics")} />
       </div>
 
       {/* saving plans + finance score */}
@@ -939,39 +1511,170 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
         <FinanceScoreCard txns={txns} budgets={budgets} scope={scope} />
       </div>
 
-      <Card title="Daily spending" sub="Day-by-day spend">
-        {daily.length === 0 ? <Empty msg="No spending in this range." /> : (
-          <div style={{ width: "100%", height: 180 }}>
-            <ResponsiveContainer>
-              <AreaChart data={daily}>
-                <defs>
-                  <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={T.darkSoft} stopOpacity={0.3} />
-                    <stop offset="100%" stopColor={T.darkSoft} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={T.line} vertical={false} />
-                <XAxis dataKey="day" tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
-                <Tooltip content={<Tip />} />
-                <Area type="monotone" dataKey="spend" stroke={T.darkSoft} strokeWidth={2} fill="url(#spendGrad)" name="Spent" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </Card>
+      <div className="dashGridRev" style={{ marginBottom: 20 }}>
+        <DailyLimitCard txns={txns} dailyLimit={dailyLimit} onSetLimit={() => openSettings("limit")} currency={currency} />
+        <BurnRateHeatmap txns={txns} currency={currency} />
+      </div>
 
       <Card title="Recent transactions" sub="Latest activity"
         filter={<button className="linkBtn" style={S.linkBtn} onClick={() => setTab("transactions")}>View all →</button>}>
-        <RecentTxnsTable txns={recentTx} catColor={catColor} />
+        <RecentTxnsTable txns={recentTx} catColor={catColor} currency={currency} />
       </Card>
     </main>
   );
 }
 
+/* ─────────────  CONCENTRIC RINGS (one ring per top category, sized/thin like an activity ring)  ───────────── */
+function ConcentricRings({ data, size = 180 }) {
+  const cx = size / 2, cy = size / 2;
+  const strokeWidth = Math.max(7, Math.floor(size / 18));
+  const gap = strokeWidth + 5;
+  const outerR = size / 2 - strokeWidth / 2 - 2;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {data.map((d, i) => {
+        const r = outerR - i * gap;
+        if (r <= strokeWidth) return null;
+        const circumference = 2 * Math.PI * r;
+        const filled = (Math.max(0, Math.min(100, d.pct)) / 100) * circumference;
+        return (
+          <g key={d.name} transform={`rotate(-90 ${cx} ${cy})`}>
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke={d.color + "22"} strokeWidth={strokeWidth} />
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke={d.color} strokeWidth={strokeWidth}
+              strokeDasharray={`${filled} ${circumference}`} strokeLinecap="round" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ─────────────  STATISTIC CARD (income/expense breakdown + subcategory drill-down)  ─────────────
+   Shared by the Dashboard (capped to `limit` categories, with a "View more" link) and the full
+   Statistics page (no limit). */
+function StatisticCard({ scopedTxns, cats, income, expense, currency, onViewSubcategory, limit, onViewMore, title = "Statistic", showChart = true }) {
+  const [statTab, setStatTab] = useState("expense");
+  const [expandedCat, setExpandedCat] = useState(null);
+
+  const expenseBreakdown = cats.heads.filter((h) => h.kind === "expense")
+    .map((h) => ({
+      name: h.name, color: h.color,
+      value: -scopedTxns.filter((t) => t.head === h.name && t.amount < 0).reduce((s, t) => s + t.amount, 0),
+    }))
+    .filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
+  const incomeBreakdown = cats.heads.filter((h) => h.kind === "income")
+    .map((h) => ({
+      name: h.name, color: h.color,
+      value: scopedTxns.filter((t) => t.head === h.name && t.amount > 0).reduce((s, t) => s + t.amount, 0),
+    }))
+    .filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
+  const fullBreakdown = statTab === "income" ? incomeBreakdown : expenseBreakdown;
+  const donut = limit ? fullBreakdown.slice(0, limit) : fullBreakdown;
+  const hasMoreCategories = limit && fullBreakdown.length > limit;
+  const donutTotal = statTab === "income" ? income : -expense;
+  const subBreakdown = (headName) => {
+    const sign = statTab === "income" ? 1 : -1;
+    const bySign = statTab === "income" ? (t) => t.amount > 0 : (t) => t.amount < 0;
+    const map = {};
+    scopedTxns.filter((t) => t.head === headName && bySign(t)).forEach((t) => {
+      map[t.cat] = (map[t.cat] || 0) + sign * t.amount;
+    });
+    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  };
+
+  return (
+    <Card title={title}>
+      <div style={S.statTabs}>
+        <button onClick={() => { setStatTab("income"); setExpandedCat(null); }} style={{ ...S.statTab, ...(statTab === "income" ? S.statTabActive : {}) }}>
+          Income
+        </button>
+        <button onClick={() => { setStatTab("expense"); setExpandedCat(null); }} style={{ ...S.statTab, ...(statTab === "expense" ? S.statTabActive : {}) }}>
+          Expense
+        </button>
+      </div>
+      {donut.length === 0 ? <Empty msg={`No ${statTab} in this range.`} /> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {showChart && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={S.donutCenterLabel}>Total {statTab}</div>
+                <div style={S.donutCenterValue}>{money(donutTotal, currency)}</div>
+              </div>
+              <ConcentricRings data={donut.map((d) => ({ ...d, pct: donutTotal !== 0 ? (d.value / donutTotal) * 100 : 0 }))} />
+            </div>
+          )}
+          <div style={{ width: "100%" }}>
+            {donut.map((d) => {
+              const pct = donutTotal !== 0 ? (d.value / donutTotal) * 100 : 0;
+              const isOpen = expandedCat === d.name;
+              const subs = subBreakdown(d.name);
+              return (
+                <div key={d.name} style={{ padding: "6px 0", borderTop: `1px solid ${T.line}` }}>
+                  <button type="button" className="statCatHead" onClick={() => setExpandedCat(isOpen ? null : d.name)}
+                    aria-expanded={isOpen} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", font: "inherit", color: "inherit" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: T.text, fontWeight: 600 }}>
+                        <span className={`statChevron${isOpen ? " open" : ""}`} aria-hidden="true"><IconChevronDown /></span>
+                        {d.name}
+                      </span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", color: T.text, fontFamily: FONT_DISPLAY, fontWeight: 700 }}>
+                        {money(d.value, currency)}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1, height: 8, borderRadius: 4, background: T.surface2, overflow: "hidden" }}>
+                        <div className="statPctFill" style={{ height: "100%", width: `${pct}%`, background: d.color, borderRadius: 4 }} />
+                      </div>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: d.color, minWidth: 34, textAlign: "right" }}>{pct.toFixed(0)}%</span>
+                    </div>
+                  </button>
+                  <div className={`statSubWrap${isOpen ? " open" : ""}`}>
+                    <div className="statSubInner">
+                      <div style={{ marginTop: 4, marginLeft: 12, paddingLeft: 14, borderLeft: `2px solid ${d.color}33`, display: "flex", flexDirection: "column", gap: 10, paddingTop: 8, paddingBottom: 4 }}>
+                        {subs.length === 0 ? (
+                          <span style={{ fontSize: 12, color: T.mut2 }}>No subcategories in this range.</span>
+                        ) : subs.map((s, i) => {
+                          const subPct = d.value !== 0 ? (s.value / d.value) * 100 : 0;
+                          return (
+                            <button type="button" key={s.name} className="statSubRow" onClick={() => onViewSubcategory(d.name, s.name)}
+                              title={`View ${s.name} transactions`}
+                              style={{ animationDelay: `${i * 35}ms`, display: "block", width: "100%", textAlign: "left", background: "none", border: "none", font: "inherit", color: "inherit", padding: 0, cursor: "pointer" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                                <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: T.mut, fontWeight: 500 }}>
+                                  <i style={{ width: 6, height: 6, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                                  {s.name}
+                                </span>
+                                <span style={{ fontVariantNumeric: "tabular-nums", color: T.text, fontWeight: 600, fontSize: 12.5 }}>{money(s.value, currency)}</span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ flex: 1, height: 5, borderRadius: 3, background: T.surface2, overflow: "hidden" }}>
+                                  <div className="statSubBar" style={{ height: "100%", width: isOpen ? `${subPct}%` : "0%", background: d.color + "99", borderRadius: 3 }} />
+                                </div>
+                                <span style={{ fontSize: 10.5, color: T.mut2, minWidth: 28, textAlign: "right" }}>{subPct.toFixed(0)}%</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {hasMoreCategories && (
+        <button className="linkBtn" style={{ ...S.linkBtn, display: "block", margin: "10px auto 0" }} onClick={onViewMore}>
+          View more →
+        </button>
+      )}
+    </Card>
+  );
+}
+
 /* ─────────────  CASHFLOW CARD (week area view / year butterfly view)  ───────────── */
-function CashflowCard({ txns, currency }) {
+function CashflowCard({ txns, currency, scope }) {
   const [visual, setVisual] = useState(1); // 1 = area chart, 2 = butterfly bar chart
   const totalBalance = txns.reduce((s, t) => s + t.amount, 0);
 
@@ -981,23 +1684,30 @@ function CashflowCard({ txns, currency }) {
       const e = (byDay[t.date] ||= { label: t.date, Income: 0, Expense: 0 });
       if (t.amount > 0) e.Income += t.amount; else e.Expense += -t.amount;
     });
-    return Object.values(byDay).sort((a, b) => a.label.localeCompare(b.label))
-      .map((d) => ({ ...d, label: d.label.slice(5) }));
-  }, [txns]);
+    const range = scopeRange(scope);
+    const span = range ? daysInRange(range[0], range[1]) : null;
+    const days = span && span.length <= 370 ? span : Object.keys(byDay).sort();
+    return days.map((d) => ({ label: dayAxisLabel(d), Income: byDay[d]?.Income || 0, Expense: byDay[d]?.Expense || 0 }));
+  }, [txns, scope]);
 
   const monthly = useMemo(() => {
     const byMonth = {};
     txns.forEach((t) => {
       const key = t.date.slice(0, 7);
       const e = (byMonth[key] ||= { key, Income: 0, Expense: 0 });
-      if (t.amount > 0) e.Income += t.amount; else e.Expense += t.amount;
+      if (t.amount > 0) e.Income += t.amount; else e.Expense += -t.amount;
     });
-    return Object.values(byMonth).sort((a, b) => a.key.localeCompare(b.key))
-      .map((d) => ({ ...d, label: monthLabel(d.key) }));
-  }, [txns]);
+    const range = scopeRange(scope);
+    const span = range ? monthsInRange(range[0], range[1]) : null;
+    const keys = span && span.length <= 60 ? span : Object.keys(byMonth).sort();
+    return keys.map((key) => ({ key, label: monthLabel(key), Income: byMonth[key]?.Income || 0, Expense: byMonth[key]?.Expense || 0 }));
+  }, [txns, scope]);
 
-  const data = visual === 1 ? daily : monthly;
+  // Beyond ~3 months, per-day points make for a cluttered, unevenly-ticked x-axis — group by month instead.
+  const data = visual === 1 && daily.length <= 92 ? daily : monthly;
   const hasData = data.some((d) => d.Income || d.Expense);
+  // Skip alternating labels once there are enough points that every tick would crowd/overlap.
+  const tickInterval = data.length > 8 ? Math.ceil(data.length / 7) - 1 : 0;
 
   return (
     <Card title="Cashflow" sub="Income vs expenses"
@@ -1013,8 +1723,8 @@ function CashflowCard({ txns, currency }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14, marginBottom: 18 }}>
         <div>
           <div style={S.kicker2}>TOTAL BALANCE</div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 700, color: T.text, marginTop: 4 }}>
-            {fm(totalBalance)} <span style={{ fontSize: 13, color: T.mut2, fontWeight: 400 }}>{currency}</span>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 21, fontWeight: 700, color: T.text, marginTop: 4, letterSpacing: -0.2 }}>
+            {fm(totalBalance)} <span style={{ fontSize: 12, color: T.mut2, fontWeight: 400 }}>{currency}</span>
           </div>
         </div>
         <div style={{ display: "flex", gap: 16 }}>
@@ -1043,23 +1753,23 @@ function CashflowCard({ txns, currency }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke={T.line} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
                 <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
                   tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
-                <Tooltip content={<Tip />} cursor={{ stroke: T.line, strokeDasharray: "4 4" }} />
+                <Tooltip content={<Tip currency={currency} />} cursor={{ stroke: T.line, strokeDasharray: "4 4" }} />
                 <Area type="monotone" dataKey="Income" stroke={T.mint} strokeWidth={2.5} fill="url(#cfIncomeGrad)" activeDot={{ r: 5 }} />
                 <Area type="monotone" dataKey="Expense" stroke={T.darkSoft} strokeWidth={2.5} fill="url(#cfExpenseGrad)" activeDot={{ r: 5 }} />
               </AreaChart>
             ) : (
               <BarChart data={data} barGap={4}>
                 <CartesianGrid stroke={T.line} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
                 <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
                   tickFormatter={(v) => (Math.abs(v) >= 1000 ? `${v / 1000}k` : v)} />
-                <Tooltip content={<Tip />} cursor={{ fill: T.surface2 }} />
+                <Tooltip content={<Tip currency={currency} />} cursor={{ fill: T.surface2 }} />
                 <ReferenceLine y={0} stroke={T.line} />
                 <Bar dataKey="Income" fill={T.darkSoft} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Expense" fill={T.mint} radius={[0, 0, 4, 4]} />
+                <Bar dataKey={(d) => -d.Expense} name="Expense" fill={T.mint} radius={[0, 0, 4, 4]} />
               </BarChart>
             )}
           </ResponsiveContainer>
@@ -1083,7 +1793,7 @@ function SavingPlansCard({ txns, savings, onAddPlans, currency }) {
       filter={<button className="linkBtn" style={S.linkBtn} onClick={onAddPlans}>+ Add Plans</button>}>
       <div style={{ marginBottom: 14 }}>
         <div style={S.kicker2}>TOTAL SAVINGS</div>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 700, color: T.text, marginTop: 4 }}>{fm(totalSaved)} {currency}</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 21, fontWeight: 700, color: T.text, marginTop: 4, letterSpacing: -0.2 }}>{money(totalSaved, currency)}</div>
       </div>
       {withProgress.length === 0 ? (
         <Empty msg="No saving plans yet — add one in Settings." />
@@ -1096,7 +1806,7 @@ function SavingPlansCard({ txns, savings, onAddPlans, currency }) {
               <div style={{ flex: 1, background: T.mint }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: T.mut }}>
-              <span>{fm(p.current)} <span style={{ color: T.mut2 }}>/ {fm(p.target)}</span></span>
+              <span>{money(p.current, currency)} <span style={{ color: T.mut2 }}>/ {money(p.target, currency)}</span></span>
               <span style={{ fontWeight: 700, color: T.text }}>{p.pct.toFixed(0)}%</span>
             </div>
           </div>
@@ -1118,8 +1828,9 @@ function FinanceScoreCard({ txns, budgets, scope }) {
 
   let scoreB = 75;
   if (budgets.length > 0) {
+    const [monthStart, monthEnd] = currentMonthRange();
     const ratios = budgets.map((b) => {
-      const spent = -txns.filter((t) => t.head === b.head && t.amount < 0 && inScope(t.date, scope)).reduce((s, t) => s + t.amount, 0);
+      const spent = -txns.filter((t) => t.head === b.head && t.amount < 0 && t.date >= monthStart && t.date <= monthEnd).reduce((s, t) => s + t.amount, 0);
       return b.limit > 0 ? spent / b.limit : 0;
     });
     const avgRatio = ratios.reduce((s, r) => s + r, 0) / ratios.length;
@@ -1147,8 +1858,34 @@ function FinanceScoreCard({ txns, budgets, scope }) {
   );
 }
 
+/* ───────────────────────  STATISTICS (full breakdown page)  ─────────────────────── */
+function Statistics({ txns, cats, scope, currency, budgets, onViewSubcategory }) {
+  const scopedTxns = txns.filter((t) => inScope(t.date, scope));
+  const income = scopedTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const expense = scopedTxns.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+  const net = income + expense;
+
+  return (
+    <main style={S.main}>
+      <div style={S.statRow}>
+        <StatCard label="Total Income" value={money(income, currency)} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconArrowDown} />
+        <StatCard label="Total Expenses" value={money(-expense, currency)} iconBg={T.roseSoft} iconColor={T.rose} icon={IconArrowUp} />
+        <StatCard label="Net" value={money(net, currency)} valueColor={net >= 0 ? T.darkSoft : T.rose} iconBg={T.goldSoft} iconColor={T.gold} icon={IconScale} />
+      </div>
+
+      <div className="dashGrid" style={{ marginBottom: 20 }}>
+        <CashflowCard txns={scopedTxns} currency={currency} scope={scope} />
+        <FinanceScoreCard txns={txns} budgets={budgets} scope={scope} />
+      </div>
+
+      <StatisticCard scopedTxns={scopedTxns} cats={cats} income={income} expense={expense} currency={currency}
+        onViewSubcategory={onViewSubcategory} limit={null} title="Full category breakdown" showChart={false} />
+    </main>
+  );
+}
+
 /* ─────────────  DAILY LIMIT CARD (in stat row)  ───────────── */
-function DailyLimitCard({ txns, dailyLimit, onSetLimit }) {
+function DailyLimitCard({ txns, dailyLimit, onSetLimit, currency }) {
   const todayStr = iso(new Date());
   const spentToday = -txns.filter((t) => t.date === todayStr && t.amount < 0).reduce((s, t) => s + t.amount, 0);
 
@@ -1173,7 +1910,7 @@ function DailyLimitCard({ txns, dailyLimit, onSetLimit }) {
         <span style={{ fontSize: 11, fontWeight: 700, color: over ? T.rose : T.mut2 }}>{pct.toFixed(0)}%</span>
       </div>
       <div style={{ ...S.statValue, fontSize: 20, color: over ? T.rose : T.text }}>
-        {fm(spentToday)} <span style={{ fontSize: 12, color: T.mut2, fontWeight: 400 }}>/ {fm(dailyLimit)}</span>
+        {money(spentToday, currency)} <span style={{ fontSize: 12, color: T.mut2, fontWeight: 400 }}>/ {money(dailyLimit, currency)}</span>
       </div>
       <div style={S.statLabel}>Today's spending limit</div>
       <div style={{ height: 6, borderRadius: 4, background: T.surface2, overflow: "hidden", marginTop: 10 }}>
@@ -1183,11 +1920,124 @@ function DailyLimitCard({ txns, dailyLimit, onSetLimit }) {
   );
 }
 
-function StatCard({ label, value, valueColor, change, iconBg, iconColor }) {
+/* ─────────────  BURN RATE HEATMAP (github-style calendar of daily spend)  ───────────── */
+function BurnRateHeatmap({ txns, currency }) {
+  const year = new Date().getFullYear();
+  const todayStr = iso(new Date());
+  const cell = 12, gap = 3;
+
+  const spendByDay = useMemo(() => {
+    const m = {};
+    txns.forEach((t) => {
+      if (t.amount < 0 && t.date.slice(0, 4) === String(year)) m[t.date] = (m[t.date] || 0) - t.amount;
+    });
+    return m;
+  }, [txns, year]);
+
+  const thresholds = useMemo(() => {
+    const values = Object.values(spendByDay).filter((v) => v > 0).sort((a, b) => a - b);
+    const q = (p) => (values.length ? values[Math.min(values.length - 1, Math.floor(p * values.length))] : 0);
+    return { q25: q(0.25), q50: q(0.5), q75: q(0.75) };
+  }, [spendByDay]);
+
+  const bucket = (v) => {
+    if (!v) return 0;
+    if (v <= thresholds.q25) return 1;
+    if (v <= thresholds.q50) return 2;
+    if (v <= thresholds.q75) return 3;
+    return 4;
+  };
+  const bucketColor = [T.surface2, T.mintSoft, T.mint, T.darkSoft, T.dark];
+
+  const weeks = useMemo(() => {
+    const jan1 = new Date(year, 0, 1);
+    const dec31 = new Date(year, 11, 31);
+    const gridStart = new Date(jan1); gridStart.setDate(jan1.getDate() - jan1.getDay());
+    const gridEnd = new Date(dec31); gridEnd.setDate(dec31.getDate() + (6 - dec31.getDay()));
+    const out = [];
+    const cursor = new Date(gridStart);
+    while (cursor <= gridEnd) {
+      const week = [];
+      for (let i = 0; i < 7; i++) {
+        week.push(cursor.getFullYear() === year ? iso(cursor) : null);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      out.push(week);
+    }
+    return out;
+  }, [year]);
+
+  const monthLabels = useMemo(() => {
+    const labels = [];
+    let lastMonth = -1;
+    weeks.forEach((week, wi) => {
+      const firstReal = week.find((d) => d);
+      if (!firstReal) return;
+      const m = +firstReal.slice(5, 7) - 1;
+      const dayNum = +firstReal.slice(8, 10);
+      if (m !== lastMonth && dayNum <= 7) { labels.push({ wi, label: MONTH_NAMES[m].slice(0, 3) }); lastMonth = m; }
+    });
+    return labels;
+  }, [weeks]);
+
+  const rowLabels = ["", "Mon", "", "Wed", "", "Fri", ""];
+
+  return (
+    <Card title="Burn Rate Heatmap" sub="Full year · daily spend intensity">
+      <div style={{ overflowX: "auto", paddingBottom: 6 }}>
+        <div style={{ display: "flex" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap, marginRight: 8, marginTop: 18 }}>
+            {rowLabels.map((l, i) => (
+              <div key={i} style={{ height: cell, fontSize: 10, color: T.mut2, lineHeight: `${cell}px` }}>{l}</div>
+            ))}
+          </div>
+          <div>
+            <div style={{ display: "flex", position: "relative", height: 14, marginBottom: 4 }}>
+              {monthLabels.map((m) => (
+                <div key={m.wi} style={{ position: "absolute", left: m.wi * (cell + gap), fontSize: 10.5, color: T.mut2, fontWeight: 600 }}>{m.label}</div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap }}>
+              {weeks.map((week, wi) => (
+                <div key={wi} style={{ display: "flex", flexDirection: "column", gap }}>
+                  {week.map((d, di) => {
+                    if (!d) return <div key={di} style={{ width: cell, height: cell }} />;
+                    const isToday = d === todayStr;
+                    const spend = spendByDay[d] || 0;
+                    return (
+                      <div key={di} title={`${d}: ${money(spend, currency)}`}
+                        style={{
+                          width: cell, height: cell, borderRadius: 3, boxSizing: "border-box",
+                          background: isToday ? T.mint : bucketColor[bucket(spend)],
+                          border: isToday ? `2px solid ${T.dark}` : `1px solid ${T.line}`,
+                        }} />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: 12, fontSize: 11, color: T.mut2, flexWrap: "wrap" }}>
+          <span>No spend</span>
+          {bucketColor.slice(0, 4).map((c, i) => (
+            <i key={i} style={{ width: 12, height: 12, borderRadius: 3, background: c, border: `1px solid ${T.line}`, display: "inline-block", boxSizing: "border-box" }} />
+          ))}
+          <i style={{ width: 12, height: 12, borderRadius: 3, background: T.dark, display: "inline-block" }} />
+          <span>High</span>
+          <i style={{ width: 12, height: 12, borderRadius: 3, background: T.mint, border: `2px solid ${T.dark}`, display: "inline-block", boxSizing: "border-box" }} />
+          <span>Today</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function StatCard({ label, value, valueColor, change, iconBg, iconColor, icon: Icon = IconCoin }) {
   return (
     <div style={S.statCard}>
       <div style={S.statTop}>
-        <span style={{ ...S.statIcon, background: iconBg, color: iconColor }}><IconCoin /></span>
+        <span style={{ ...S.statIcon, background: iconBg, color: iconColor }}><Icon /></span>
         {change != null && (
           <span style={{ ...S.changeBadge, ...(change >= 0 ? S.changeUp : S.changeDown) }}>
             {change >= 0 ? "↑" : "↓"} {Math.abs(change).toFixed(1)}%
@@ -1200,7 +2050,7 @@ function StatCard({ label, value, valueColor, change, iconBg, iconColor }) {
   );
 }
 
-function RecentTxnsTable({ txns, catColor }) {
+function RecentTxnsTable({ txns, catColor, currency }) {
   if (txns.length === 0) return <Empty msg="No transactions in this range." />;
   return (
     <div style={{ overflowX: "auto" }}>
@@ -1226,12 +2076,10 @@ function RecentTxnsTable({ txns, catColor }) {
                 </div>
               </td>
               <td style={S.td}>
-                <span style={S.tdSub}>
-                  {new Date(t.date + "T00:00").toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" })}
-                </span>
+                <span style={S.tdSub}>{dateLabel(t.date)}</span>
               </td>
               <td style={{ ...S.td, textAlign: "right", fontFamily: FONT_DISPLAY, fontWeight: 600, color: t.amount >= 0 ? T.darkSoft : T.rose, fontVariantNumeric: "tabular-nums" }}>
-                {t.amount >= 0 ? "+" : "−"}{fm(Math.abs(t.amount), t.amount % 1 ? 2 : 0)}
+                {t.amount >= 0 ? "+" : "−"}{money(Math.abs(t.amount), currency)}
               </td>
               <td style={{ ...S.td, textAlign: "center" }}>
                 <span style={{ ...S.statusPill, ...(t.amount >= 0 ? S.pillIncome : S.pillExpense) }}>
@@ -1247,20 +2095,24 @@ function RecentTxnsTable({ txns, catColor }) {
 }
 
 /* ───────────────────────  WALLETS  ─────────────────────── */
-function Wallets({ txns, wallets, scope }) {
+function Wallets({ txns, wallets, scope, currency }) {
   return (
     <main style={S.main}>
+      <div style={{ fontSize: 12, color: T.mut2, marginBottom: 14 }}>
+        Balance is the wallet's running total across all time — it isn't affected by the date range up top.
+      </div>
       <div style={S.statRow}>
         {wallets.map((w) => {
-          const scoped = txns.filter((t) => t.walletId === w.id && inScope(t.date, scope));
-          const balance = w.startingBalance + scoped.reduce((s, t) => s + t.amount, 0);
+          const walletTxns = txns.filter((t) => t.walletId === w.id);
+          const balance = w.startingBalance + walletTxns.reduce((s, t) => s + t.amount, 0);
+          const scopedCount = walletTxns.filter((t) => inScope(t.date, scope)).length;
           return (
             <div key={w.id} style={S.statCard}>
               <div style={S.statTop}>
                 <span style={{ ...S.statIcon, background: w.color + "22", color: w.color }}><IconWallet /></span>
-                <span style={{ fontSize: 11.5, color: T.mut2 }}>{scoped.length} txns</span>
+                <span style={{ fontSize: 11.5, color: T.mut2 }}>{scopedCount} txns in range</span>
               </div>
-              <div style={{ ...S.statValue, color: balance >= 0 ? T.text : T.rose }}>{fm(balance)}</div>
+              <div style={{ ...S.statValue, color: balance >= 0 ? T.text : T.rose }}>{money(balance, currency)}</div>
               <div style={S.statLabel}>{w.name}</div>
             </div>
           );
@@ -1271,7 +2123,7 @@ function Wallets({ txns, wallets, scope }) {
 }
 
 /* ───────────────────────  BUDGETS  ─────────────────────── */
-function Budgets({ txns, budgets, catColor, scope }) {
+function Budgets({ txns, budgets, catColor, currency }) {
   if (budgets.length === 0) {
     return (
       <main style={S.main}>
@@ -1279,17 +2131,21 @@ function Budgets({ txns, budgets, catColor, scope }) {
       </main>
     );
   }
+  const [monthStart, monthEnd] = currentMonthRange();
   return (
     <main style={S.main}>
+      <div style={{ fontSize: 12, color: T.mut2, marginBottom: 14 }}>
+        Budgets always track {dateLabel(monthStart)} → {dateLabel(monthEnd)} — the current calendar month, regardless of the date range up top.
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px,1fr))", gap: 20 }}>
         {budgets.map((b) => {
-          const spent = -txns.filter((t) => t.head === b.head && t.amount < 0 && inScope(t.date, scope))
+          const spent = -txns.filter((t) => t.head === b.head && t.amount < 0 && t.date >= monthStart && t.date <= monthEnd)
             .reduce((s, t) => s + t.amount, 0);
           const pct = b.limit > 0 ? Math.min(100, (spent / b.limit) * 100) : 0;
           const over = spent > b.limit;
           const barColor = pct >= 100 ? T.rose : pct >= 80 ? T.gold : T.darkSoft;
           return (
-            <Card key={b.id} title={b.head} sub={`Limit ${fm(b.limit)} PKR`}>
+            <Card key={b.id} title={b.head} sub={`Limit ${money(b.limit, currency)}`}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <span style={{ ...S.catDot, background: catColor(b.head) }} />
                 <div style={{ flex: 1, height: 10, borderRadius: 6, background: T.surface2, overflow: "hidden" }}>
@@ -1297,9 +2153,9 @@ function Budgets({ txns, budgets, catColor, scope }) {
                 </div>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <span style={{ color: T.mut }}>Spent {fm(spent)}</span>
+                <span style={{ color: T.mut }}>Spent {money(spent, currency)}</span>
                 <span style={{ color: over ? T.rose : T.darkSoft, fontWeight: 700 }}>
-                  {over ? `${fm(spent - b.limit)} over` : `${fm(b.limit - spent)} left`}
+                  {over ? `${money(spent - b.limit, currency)} over` : `${money(b.limit - spent, currency)} left`}
                 </span>
               </div>
             </Card>
@@ -1311,7 +2167,7 @@ function Budgets({ txns, budgets, catColor, scope }) {
 }
 
 /* ───────────────────────  SAVING SPACES  ─────────────────────── */
-function SavingSpaces({ txns, savings, scope }) {
+function SavingSpaces({ txns, savings, scope, currency }) {
   if (savings.length === 0) {
     return (
       <main style={S.main}>
@@ -1327,12 +2183,12 @@ function SavingSpaces({ txns, savings, scope }) {
             .reduce((sum, t) => sum + Math.abs(t.amount), 0);
           const pct = s.target > 0 ? Math.min(100, (current / s.target) * 100) : 0;
           return (
-            <Card key={s.id} title={s.name} sub={`Target ${fm(s.target)} PKR`}>
+            <Card key={s.id} title={s.name} sub={`Target ${money(s.target, currency)}`}>
               <div style={{ height: 10, borderRadius: 6, background: T.surface2, overflow: "hidden", marginBottom: 10 }}>
                 <div style={{ height: "100%", width: `${pct}%`, background: s.color, borderRadius: 6, transition: "width .4s" }} />
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <span style={{ color: T.mut }}>Saved {fm(current)}</span>
+                <span style={{ color: T.mut }}>Saved {money(current, currency)}</span>
                 <span style={{ color: T.darkSoft, fontWeight: 700 }}>{pct.toFixed(0)}% of goal</span>
               </div>
             </Card>
@@ -1344,7 +2200,7 @@ function SavingSpaces({ txns, savings, scope }) {
 }
 
 /* ───────────────────────  FORECAST  ─────────────────────── */
-function Forecast({ txns }) {
+function Forecast({ txns, currency }) {
   const months = [...new Set(txns.map((t) => t.date.slice(0, 7)))].sort();
   const series = months.map((m) => {
     const mt = txns.filter((t) => t.date.slice(0, 7) === m);
@@ -1369,6 +2225,8 @@ function Forecast({ txns }) {
     }
   }
   const combined = [...series, ...projected];
+  // Skip alternating labels once there are enough bars that every tick would crowd/overlap.
+  const tickInterval = combined.length > 8 ? Math.ceil(combined.length / 7) - 1 : 0;
 
   return (
     <main style={S.main}>
@@ -1379,17 +2237,17 @@ function Forecast({ txns }) {
           <>
             <div style={{ fontSize: 13, color: T.mut, marginBottom: 16 }}>
               Averaging your last {trailing.length} month{trailing.length !== 1 ? "s" : ""}, you net about{" "}
-              <strong style={{ color: avgNet >= 0 ? T.darkSoft : T.rose }}>{fm(avgNet)} PKR/month</strong>.
+              <strong style={{ color: avgNet >= 0 ? T.darkSoft : T.rose }}>{money(avgNet, currency)}/month</strong>.
               The lighter bars below are a projection based on that average, not a guarantee.
             </div>
             <div style={{ width: "100%", height: 280 }}>
               <ResponsiveContainer>
                 <BarChart data={combined} barGap={4}>
                   <CartesianGrid stroke={T.line} vertical={false} />
-                  <XAxis dataKey="month" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="month" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
                   <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
                     tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
-                  <Tooltip content={<Tip />} cursor={{ fill: T.surface2 }} />
+                  <Tooltip content={<Tip currency={currency} />} cursor={{ fill: T.surface2 }} />
                   <Legend wrapperStyle={{ fontSize: 11, color: T.mut }} />
                   <Bar dataKey="Income" fill={T.darkSoft} radius={[4, 4, 0, 0]}>
                     {combined.map((d, i) => <Cell key={i} fill={T.darkSoft} fillOpacity={d.projected ? 0.35 : 1} />)}
@@ -1421,10 +2279,14 @@ function ComingSoon({ title, blurb }) {
 }
 
 /* ───────────────────────  TRANSACTIONS  ─────────────────────── */
-function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch }) {
-  const [fHead, setFHead] = useState("all");
-  const [fSub, setFSub] = useState("all");
+function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch, currency, presetFilter, onConsumePresetFilter }) {
+  const [fHead, setFHead] = useState(presetFilter?.head || "all");
+  const [fSub, setFSub] = useState(presetFilter?.sub || "all");
   const [fType, setFType] = useState("all");
+
+  // Consume the incoming preset exactly once per mount so a later plain visit to this tab (without
+  // clicking a subcategory again) isn't stuck re-applying a stale filter.
+  useEffect(() => { if (presetFilter) onConsumePresetFilter(); }, []);
 
   const subOptions = fHead !== "all" ? cats.subcats[fHead] || [] : [];
 
@@ -1443,13 +2305,18 @@ function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch }
     [...filtered].sort((a, b) => b.date.localeCompare(a.date)).forEach((t) => { (g[t.date] = g[t.date] || []).push(t); });
     return g;
   }, [filtered]);
+  const dateKeys = Object.keys(byDate); // insertion order already newest-first
+  const PAGE_SIZE = 30;
+  const [visibleDays, setVisibleDays] = useState(PAGE_SIZE);
+  useEffect(() => { setVisibleDays(PAGE_SIZE); }, [scope, fHead, fSub, fType, search]);
+  const visibleDateKeys = dateKeys.slice(0, visibleDays);
 
   return (
     <main style={S.main}>
       <div style={S.filterBar}>
         {search && (
           <div style={S.activeSearchPill}>
-            Searching “{search}” <button onClick={() => setSearch("")} style={S.activeSearchClear}>✕</button>
+            Searching “{search}” <button onClick={() => setSearch("")} aria-label="Clear search" style={S.activeSearchClear}>✕</button>
           </div>
         )}
         <select className="field" value={fHead} onChange={(e) => { setFHead(e.target.value); setFSub("all"); }} style={S.input}>
@@ -1474,21 +2341,19 @@ function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch }
       <div style={S.resultLine}>
         {filtered.length} transaction{filtered.length !== 1 ? "s" : ""} · {scopeLabel(scope)} ·{" "}
         <span style={{ color: total >= 0 ? T.darkSoft : T.rose, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
-          {total >= 0 ? "+" : "−"}{fm(Math.abs(total))} PKR
+          {total >= 0 ? "+" : "−"}{money(Math.abs(total), currency)}
         </span>
         <span style={{ color: T.mut2, marginLeft: 10, fontSize: 11 }}>Tap any transaction to edit</span>
       </div>
 
-      {Object.keys(byDate).length === 0 && (
+      {dateKeys.length === 0 && (
         <div style={S.empty}>No transactions match these filters. Clear a filter or add a new expense.</div>
       )}
 
-      {Object.entries(byDate).map(([date, list]) => (
+      {visibleDateKeys.map((date) => (
         <div key={date} style={{ marginBottom: 18 }}>
-          <div style={S.dateHead}>
-            {new Date(date + "T00:00").toLocaleDateString("en", { weekday: "short", day: "numeric", month: "long", year: "numeric" })}
-          </div>
-          {list.map((t) => (
+          <div style={S.dateHead}>{dateLabel(date)}</div>
+          {byDate[date].map((t) => (
             <div key={t.id} className="txnRow" style={{ ...S.txnRow, cursor: "pointer" }}
               onClick={() => onEdit(t)} title="Edit this transaction">
               <span style={{ ...S.catDot, background: catColor(t.head) }} />
@@ -1497,13 +2362,20 @@ function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch }
                 <div style={S.txnMeta}>{t.head} · {t.cat}</div>
               </div>
               <div style={{ ...S.txnAmt, color: t.amount >= 0 ? T.darkSoft : T.rose }}>
-                {t.amount >= 0 ? "+" : "−"}{fm(Math.abs(t.amount), t.amount % 1 ? 2 : 0)}
+                {t.amount >= 0 ? "+" : "−"}{money(Math.abs(t.amount), currency)}
               </div>
               <span className="editHint" style={S.editHint}>✎</span>
             </div>
           ))}
         </div>
       ))}
+
+      {dateKeys.length > visibleDays && (
+        <button className="linkBtn" style={{ ...S.linkBtn, display: "block", margin: "8px auto 0" }}
+          onClick={() => setVisibleDays((n) => n + PAGE_SIZE)}>
+          Load more days ({dateKeys.length - visibleDays} left) ↓
+        </button>
+      )}
     </main>
   );
 }
@@ -1653,7 +2525,7 @@ const SETTINGS_TABS = [
 function Settings({
   cats, txns, persistCats, persistTxns, catColor, wallets, budgets, savings,
   persistWallets, persistBudgets, persistSavings, dailyLimit, persistDailyLimit,
-  profile, persistProfile, settingsTab, setSettingsTab, onLogout, onDeleteAccount,
+  profile, persistProfile, settingsTab, setSettingsTab, onLogout, onResetData,
 }) {
   const [newHead, setNewHead] = useState("");
   const [dailyLimitInput, setDailyLimitInput] = useState(String(dailyLimit || ""));
@@ -1662,6 +2534,31 @@ function Settings({
   const [newSub, setNewSub] = useState({}); // {headName: text}
   const [renaming, setRenaming] = useState(null); // {kind:'head'|'sub'|'wallet'|'saving', ...}
   const [msg, setMsg] = useState("");
+  const [confirmDeleteBudget, setConfirmDeleteBudget] = useState(null);
+  const [confirmDeleteSaving, setConfirmDeleteSaving] = useState(null);
+  const [confirmDeleteHead, setConfirmDeleteHead] = useState(null);
+  const [confirmDeleteWallet, setConfirmDeleteWallet] = useState(null);
+  const [mergePreview, setMergePreview] = useState(null); // array of {from, to} or null
+
+  const scanForMiscategorized = () => {
+    const merges = findMiscategorizedMerges(cats);
+    if (!merges) { note("No miscategorized categories found — everything looks tidy."); return; }
+    setMergePreview(merges);
+  };
+  const applyCleanup = () => {
+    const { cats: newCats, txns: newTxns, budgets: newBudgets } = applyMiscategorizedMerges(mergePreview, cats, txns, budgets);
+    persistCats(newCats); persistTxns(newTxns); persistBudgets(newBudgets);
+    note(`Merged ${mergePreview.length} categor${mergePreview.length !== 1 ? "ies" : "y"}.`);
+    setMergePreview(null);
+  };
+
+  const [structurePreview, setStructurePreview] = useState(null); // { cats, txns, budgets, kept } or null
+  const previewNewStructure = () => setStructurePreview(migrateToNewCategoryStructure(cats, txns, budgets));
+  const applyNewStructure = () => {
+    persistCats(structurePreview.cats); persistTxns(structurePreview.txns); persistBudgets(structurePreview.budgets);
+    note("Category structure updated.");
+    setStructurePreview(null);
+  };
 
   const [newWalletName, setNewWalletName] = useState("");
   const [newWalletBalance, setNewWalletBalance] = useState("0");
@@ -1787,7 +2684,8 @@ function Settings({
   const saveDailyLimit = () => persistDailyLimit(parseFloat(dailyLimitInput) || 0);
 
   return (
-    <main style={{ ...S.main, maxWidth: 760 }}>
+    <main style={{ ...S.main, maxWidth: 900 }}>
+    <div className="settingsLayout" style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
       <div style={S.settingsTabBar}>
         {SETTINGS_TABS.map((t) => (
           <button key={t.key} onClick={() => setSettingsTab(t.key)}
@@ -1797,9 +2695,11 @@ function Settings({
         ))}
       </div>
 
+      <div style={{ flex: 1, minWidth: 0 }}>
       {msg && <div style={S.settingsMsg}>{msg}</div>}
 
-      {settingsTab === "profile" && <ProfileFields profile={profile} persistProfile={persistProfile} onDeleteAccount={onDeleteAccount} />}
+      {settingsTab === "profile" && <ProfileFields profile={profile} persistProfile={persistProfile} onResetData={onResetData}
+        txns={txns} wallets={wallets} currency={profile.currency} cats={cats} persistCats={persistCats} persistTxns={persistTxns} />}
 
       {settingsTab === "logout" && (
         <div style={S.formCard}>
@@ -1836,8 +2736,52 @@ function Settings({
       {settingsTab === "categories" && (
       <>
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Categories</div>
-      <div style={{ fontSize: 12, color: T.mut2, marginBottom: 18 }}>
+      <div style={{ fontSize: 12, color: T.mut2, marginBottom: 12 }}>
         Rename anything and existing transactions update with it. Deleting is only possible when nothing uses the category.
+      </div>
+
+      <div style={{ background: T.mintSoft, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Update to the new category structure</div>
+        <div style={{ fontSize: 12, color: T.mut2, marginBottom: 10 }}>
+          Replaces your categories with the standard set (Housing &amp; Utilities, Transportation, Food &amp; Dining, and so on) and moves your existing transactions and budgets onto it automatically. Anything custom you've added that isn't part of the standard set is kept as-is.
+        </div>
+        {!structurePreview ? (
+          <button onClick={previewNewStructure} style={S.tinyBtn}>Preview the update</button>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12.5, color: T.text, marginBottom: 8 }}>
+              This will set up {structurePreview.cats.heads.length} main categories and remap {structurePreview.txns.filter((t, i) => t !== txns[i]).length} existing transaction{structurePreview.txns.length !== 1 ? "s" : ""}.
+              {structurePreview.kept.length > 0 && <> Kept as-is: {structurePreview.kept.join(", ")}.</>}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={applyNewStructure} className="primaryBtn" style={{ ...S.primaryBtn, marginTop: 0, padding: "8px 16px" }}>Apply update</button>
+              <button onClick={() => setStructurePreview(null)} style={S.tinyBtn}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: T.surface2, border: `1px solid ${T.line}`, borderRadius: 12, padding: 14, marginBottom: 22 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Clean up miscategorized data</div>
+        <div style={{ fontSize: 12, color: T.mut2, marginBottom: 10 }}>
+          Finds main categories that are actually subcategories of another main category (often left over from an older import) and merges them in.
+        </div>
+        {!mergePreview ? (
+          <button onClick={scanForMiscategorized} style={S.tinyBtn}>Scan for miscategorized data</button>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12.5, color: T.text, marginBottom: 8 }}>
+              Found {mergePreview.length} categor{mergePreview.length !== 1 ? "ies" : "y"} to merge:
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {mergePreview.map((m, i) => <li key={i}>"{m.from}" → merges into "{m.to}"</li>)}
+              </ul>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={applyCleanup} className="primaryBtn" style={{ ...S.primaryBtn, marginTop: 0, padding: "8px 16px" }}>Apply cleanup</button>
+              <button onClick={() => setMergePreview(null)} style={S.tinyBtn}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {["expense", "income"].map((kind) => (
@@ -1854,14 +2798,24 @@ function Settings({
                     onKeyDown={(e) => e.key === "Enter" && commitRename()}
                     onBlur={commitRename} style={{ ...S.input, ...S.inputSm }} />
                 ) : (
-                  <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, cursor: "pointer" }}
-                    onClick={() => setRenaming({ kind: "head", head: h.name, value: h.name })} title="Click to rename">
+                  <button type="button" style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, cursor: "pointer", background: "none", border: "none", padding: 0, color: "inherit" }}
+                    onClick={() => setRenaming({ kind: "head", head: h.name, value: h.name })} title="Click to rename" aria-label={`Rename category ${h.name}`}>
                     {h.name} <span style={{ color: T.mut2, fontSize: 11 }}>✎</span>
-                  </span>
+                  </button>
                 )}
                 <span style={{ fontSize: 11, color: T.mut2 }}>{usedByHead(h.name)} txns</span>
-                <button onClick={() => deleteHead(h.name)} style={{ ...S.tinyBtn, marginLeft: "auto" }}
-                  title={usedByHead(h.name) ? "In use — reassign transactions first" : "Delete category"}>✕</button>
+                {confirmDeleteHead === h.name ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontSize: 11.5, color: T.mut }}>
+                    Delete?
+                    <button onClick={() => { deleteHead(h.name); setConfirmDeleteHead(null); }} aria-label={`Confirm delete category ${h.name}`}
+                      style={{ ...S.tinyBtn, color: "#fff", background: T.rose, borderColor: T.rose }}>✓</button>
+                    <button onClick={() => setConfirmDeleteHead(null)} aria-label="Cancel delete" style={S.tinyBtn}>✕</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setConfirmDeleteHead(h.name)} style={{ ...S.tinyBtn, marginLeft: "auto" }}
+                    aria-label={`Delete category ${h.name}`}
+                    title={usedByHead(h.name) ? "In use — reassign transactions first" : "Delete category"}>✕</button>
+                )}
               </div>
               <div style={{ ...S.chipWrap, marginTop: 10 }}>
                 {(cats.subcats[h.name] || []).map((s) =>
@@ -1872,10 +2826,12 @@ function Settings({
                       onBlur={commitRename} style={{ ...S.input, ...S.inputSm, width: 130 }} />
                   ) : (
                     <span key={s} className="chip" style={{ ...S.chip, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ cursor: "pointer" }} title="Click to rename"
-                        onClick={() => setRenaming({ kind: "sub", head: h.name, sub: s, value: s })}>{s}</span>
-                      <span onClick={() => deleteSub(h.name, s)} style={{ cursor: "pointer", color: T.mut2 }}
-                        title={usedBySub(h.name, s) ? "In use" : "Delete"}>✕</span>
+                      <button type="button" style={{ cursor: "pointer", background: "none", border: "none", padding: 0, font: "inherit", color: "inherit" }} title="Click to rename"
+                        aria-label={`Rename subcategory ${s}`}
+                        onClick={() => setRenaming({ kind: "sub", head: h.name, sub: s, value: s })}>{s}</button>
+                      <button type="button" onClick={() => deleteSub(h.name, s)} style={{ cursor: "pointer", color: T.mut2, background: "none", border: "none", padding: 0 }}
+                        aria-label={`Delete subcategory ${s}`}
+                        title={usedBySub(h.name, s) ? "In use" : "Delete"}>✕</button>
                     </span>
                   )
                 )}
@@ -1924,14 +2880,24 @@ function Settings({
                 onKeyDown={(e) => e.key === "Enter" && commitRename()}
                 onBlur={commitRename} style={{ ...S.input, ...S.inputSm }} />
             ) : (
-              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, cursor: "pointer" }}
-                onClick={() => setRenaming({ kind: "wallet", id: w.id, value: w.name })} title="Click to rename">
+              <button type="button" style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, cursor: "pointer", background: "none", border: "none", padding: 0, color: "inherit" }}
+                onClick={() => setRenaming({ kind: "wallet", id: w.id, value: w.name })} title="Click to rename" aria-label={`Rename wallet ${w.name}`}>
                 {w.name} <span style={{ color: T.mut2, fontSize: 11 }}>✎</span>
-              </span>
+              </button>
             )}
             <span style={{ fontSize: 11, color: T.mut2 }}>{usedByWallet(w.id)} txns</span>
-            <button onClick={() => deleteWallet(w.id)} style={{ ...S.tinyBtn, marginLeft: "auto" }}
-              title={wallets.length <= 1 ? "At least one wallet is required" : usedByWallet(w.id) ? "In use — reassign transactions first" : "Delete wallet"}>✕</button>
+            {confirmDeleteWallet === w.id ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontSize: 11.5, color: T.mut }}>
+                Delete?
+                <button onClick={() => { deleteWallet(w.id); setConfirmDeleteWallet(null); }} aria-label={`Confirm delete wallet ${w.name}`}
+                  style={{ ...S.tinyBtn, color: "#fff", background: T.rose, borderColor: T.rose }}>✓</button>
+                <button onClick={() => setConfirmDeleteWallet(null)} aria-label="Cancel delete" style={S.tinyBtn}>✕</button>
+              </span>
+            ) : (
+              <button onClick={() => setConfirmDeleteWallet(w.id)} style={{ ...S.tinyBtn, marginLeft: "auto" }}
+                aria-label={`Delete wallet ${w.name}`}
+                title={wallets.length <= 1 ? "At least one wallet is required" : usedByWallet(w.id) ? "In use — reassign transactions first" : "Delete wallet"}>✕</button>
+            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
             <span style={{ fontSize: 12, color: T.mut2 }}>Starting balance</span>
@@ -1969,7 +2935,17 @@ function Settings({
             <span style={{ fontSize: 12, color: T.mut2 }}>limit</span>
             <input className="field" type="number" value={b.limit}
               onChange={(e) => setBudgetLimit(b.id, e.target.value)} style={{ ...S.input, ...S.inputSm, width: 120 }} />
-            <button onClick={() => deleteBudget(b.id)} style={{ ...S.tinyBtn, marginLeft: "auto" }} title="Delete budget">✕</button>
+            {confirmDeleteBudget === b.id ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontSize: 11.5, color: T.mut }}>
+                Delete?
+                <button onClick={() => { deleteBudget(b.id); setConfirmDeleteBudget(null); }} aria-label={`Confirm delete budget for ${b.head}`}
+                  style={{ ...S.tinyBtn, color: "#fff", background: T.rose, borderColor: T.rose }}>✓</button>
+                <button onClick={() => setConfirmDeleteBudget(null)} aria-label="Cancel delete" style={S.tinyBtn}>✕</button>
+              </span>
+            ) : (
+              <button onClick={() => setConfirmDeleteBudget(b.id)} aria-label={`Delete budget for ${b.head}`}
+                style={{ ...S.tinyBtn, marginLeft: "auto" }} title="Delete budget">✕</button>
+            )}
           </div>
         </div>
       ))}
@@ -2009,17 +2985,27 @@ function Settings({
                 onKeyDown={(e) => e.key === "Enter" && commitRename()}
                 onBlur={commitRename} style={{ ...S.input, ...S.inputSm }} />
             ) : (
-              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, cursor: "pointer" }}
-                onClick={() => setRenaming({ kind: "saving", id: s.id, value: s.name })} title="Click to rename">
+              <button type="button" style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14.5, cursor: "pointer", background: "none", border: "none", padding: 0, color: "inherit" }}
+                onClick={() => setRenaming({ kind: "saving", id: s.id, value: s.name })} title="Click to rename" aria-label={`Rename saving space ${s.name}`}>
                 {s.name} <span style={{ color: T.mut2, fontSize: 11 }}>✎</span>
-              </span>
+              </button>
             )}
             <span style={{ fontSize: 12, color: T.mut2 }}>target</span>
             <input className="field" type="number" value={s.target}
               onChange={(e) => setSavingTarget(s.id, e.target.value)} style={{ ...S.input, ...S.inputSm, width: 120 }} />
             <span style={{ fontSize: 11, color: T.mut2 }}>{usedBySaving(s.id)} txns</span>
-            <button onClick={() => deleteSaving(s.id)} style={{ ...S.tinyBtn, marginLeft: "auto" }}
-              title={usedBySaving(s.id) ? "In use — reassign transactions first" : "Delete"}>✕</button>
+            {confirmDeleteSaving === s.id ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontSize: 11.5, color: T.mut }}>
+                Delete?
+                <button onClick={() => { deleteSaving(s.id); setConfirmDeleteSaving(null); }} aria-label={`Confirm delete saving space ${s.name}`}
+                  style={{ ...S.tinyBtn, color: "#fff", background: T.rose, borderColor: T.rose }}>✓</button>
+                <button onClick={() => setConfirmDeleteSaving(null)} aria-label="Cancel delete" style={S.tinyBtn}>✕</button>
+              </span>
+            ) : (
+              <button onClick={() => setConfirmDeleteSaving(s.id)} style={{ ...S.tinyBtn, marginLeft: "auto" }}
+                aria-label={`Delete saving space ${s.name}`}
+                title={usedBySaving(s.id) ? "In use — reassign transactions first" : "Delete"}>✕</button>
+            )}
           </div>
         </div>
       ))}
@@ -2036,6 +3022,8 @@ function Settings({
       )}
       </>
       )}
+      </div>
+    </div>
     </main>
   );
 }
@@ -2044,8 +3032,10 @@ function Settings({
 const DOB_DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 const DOB_YEARS = Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i);
 
-function ProfileFields({ profile, persistProfile, onDeleteAccount }) {
+function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, currency, cats, persistCats, persistTxns }) {
   const [form, setForm] = useState(profile);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const fileInputRef = useRef(null);
@@ -2135,6 +3125,7 @@ function ProfileFields({ profile, persistProfile, onDeleteAccount }) {
           <select className="field" value={form.currency} onChange={(e) => set({ currency: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
             {CURRENCY_OPTIONS.map((c) => <option key={c}>{c}</option>)}
           </select>
+          <div style={{ fontSize: 11, color: T.mut2, marginTop: 4 }}>Just relabels your numbers — amounts aren't converted between currencies.</div>
         </div>
         <div style={{ flex: "1 1 140px", minWidth: 0 }}>
           <label style={S.label}>Language</label>
@@ -2148,13 +3139,31 @@ function ProfileFields({ profile, persistProfile, onDeleteAccount }) {
       {saved && <div style={{ color: T.darkSoft, fontSize: 12, marginTop: 12 }}>✓ Settings updated</div>}
       <button className="primaryBtn" onClick={save} style={S.primaryBtn}>Update my settings</button>
 
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, marginTop: 22, marginBottom: 4 }}>Data Management</div>
+      <div style={{ fontSize: 12, color: T.mut2, marginBottom: 10 }}>Download or import your transactions as a CSV or Excel file.</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button onClick={() => setExportOpen(true)} style={S.uploadAvatarBtn}><IconUpload /> Export data</button>
+        <button onClick={() => setImportOpen(true)} style={{ ...S.uploadAvatarBtn, background: T.surface2, color: T.text }}><IconDownload /> Import data</button>
+      </div>
+
+      {exportOpen && (
+        <Modal onClose={() => setExportOpen(false)}>
+          <ExportDataForm txns={txns} wallets={wallets} currency={currency} onClose={() => setExportOpen(false)} />
+        </Modal>
+      )}
+      {importOpen && (
+        <Modal onClose={() => setImportOpen(false)}>
+          <ImportDataForm cats={cats} wallets={wallets} txns={txns} persistCats={persistCats} persistTxns={persistTxns} onClose={() => setImportOpen(false)} />
+        </Modal>
+      )}
+
       <div style={{ borderTop: `1px solid ${T.line}`, marginTop: 22, paddingTop: 16, textAlign: "right" }}>
         {!confirmDel ? (
-          <button onClick={() => setConfirmDel(true)} style={S.deleteAccountLink}>Delete account</button>
+          <button onClick={() => setConfirmDel(true)} style={S.deleteAccountLink}>Reset my data</button>
         ) : (
           <span style={{ fontSize: 12.5, color: T.mut }}>
-            This wipes all local data. Are you sure?{" "}
-            <button onClick={onDeleteAccount} style={{ ...S.deleteAccountLink, color: T.rose, fontWeight: 700 }}>Yes, delete everything</button>
+            This permanently erases every transaction, wallet, budget, and saving space, then signs you out. Your login itself isn't deleted — you can sign back in to a fresh, empty account. Are you sure?{" "}
+            <button onClick={onResetData} style={{ ...S.deleteAccountLink, color: T.rose, fontWeight: 700 }}>Yes, reset everything</button>
             {" · "}
             <button onClick={() => setConfirmDel(false)} style={S.deleteAccountLink}>Cancel</button>
           </span>
@@ -2164,12 +3173,170 @@ function ProfileFields({ profile, persistProfile, onDeleteAccount }) {
   );
 }
 
+/* ───────────  EXPORT DATA MODAL FORM  ─────────── */
+function ExportDataForm({ txns, wallets, currency, onClose }) {
+  const [walletId, setWalletId] = useState("all");
+  const [period, setPeriod] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [format, setFormat] = useState("csv");
+
+  const periodRange = () => {
+    if (period === "month") return currentMonthRange();
+    if (period === "year") { const y = new Date().getFullYear(); return [`${y}-01-01`, `${y}-12-31`]; }
+    if (period === "custom") return [from || "0000-01-01", to || "9999-12-31"];
+    return null;
+  };
+
+  const runExport = () => {
+    const range = periodRange();
+    const filtered = txns.filter((t) =>
+      (walletId === "all" || t.walletId === walletId) &&
+      (!range || (t.date >= range[0] && t.date <= range[1]))
+    );
+    const rows = transactionsToRows(filtered, wallets, currency);
+    const stamp = iso(new Date());
+    if (format === "csv") downloadText(rowsToCSV(rows), `transactions-${stamp}.csv`, "text/csv;charset=utf-8;");
+    else downloadBlob(rowsToXLSXBlob(rows), `transactions-${stamp}.xlsx`);
+    onClose();
+  };
+
+  return (
+    <div style={{ width: 380, maxWidth: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, marginBottom: 16 }}>Export data</div>
+
+      <label style={S.label}>Wallet</label>
+      <select className="field" value={walletId} onChange={(e) => setWalletId(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
+        <option value="all">All wallets</option>
+        {wallets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+      </select>
+
+      <label style={S.label}>Period</label>
+      <select className="field" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
+        <option value="all">All time</option>
+        <option value="month">This month</option>
+        <option value="year">This year</option>
+        <option value="custom">Custom range</option>
+      </select>
+      {period === "custom" && (
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <label style={S.label}>From</label>
+            <input className="field" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <label style={S.label}>To</label>
+            <input className="field" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
+          </div>
+        </div>
+      )}
+
+      <label style={S.label}>Format</label>
+      <div style={S.segment}>
+        <button onClick={() => setFormat("csv")} style={{ ...S.segBtn, flex: 1, ...(format === "csv" ? S.segBtnActive : {}) }}>CSV</button>
+        <button onClick={() => setFormat("xlsx")} style={{ ...S.segBtn, flex: 1, ...(format === "xlsx" ? S.segBtnActive : {}) }}>Excel (.xlsx)</button>
+      </div>
+
+      <button className="primaryBtn" onClick={runExport} style={S.primaryBtn}>Export data</button>
+    </div>
+  );
+}
+
+/* ───────────  IMPORT DATA MODAL FORM  ─────────── */
+function ImportDataForm({ cats, wallets, txns, persistCats, persistTxns, onClose }) {
+  const [fileName, setFileName] = useState("");
+  const [status, setStatus] = useState(""); // "" | "parsing" | "ready" | "error" | "done"
+  const [errMsg, setErrMsg] = useState("");
+  const [result, setResult] = useState(null); // { txns, errors, newHeads, newSubcats, defaultedWallets, cats }
+  const fileInputRef = useRef(null);
+
+  const pickFile = () => fileInputRef.current?.click();
+
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setFileName(file.name);
+    setStatus("parsing");
+    setErrMsg("");
+    try {
+      const rows = await parseImportFile(file);
+      if (!rows.length) throw new Error("No data rows found in this file.");
+      const built = buildTxnsFromImportRows(rows, cats, wallets);
+      setResult(built);
+      setStatus("ready");
+    } catch (err) {
+      setErrMsg(err.message || "Couldn't read that file.");
+      setStatus("error");
+    }
+  };
+
+  const confirmImport = () => {
+    if (!result || result.txns.length === 0) return;
+    if (result.newHeads.length || result.newSubcats.length) persistCats(result.cats);
+    persistTxns([...txns, ...result.txns].sort((a, b) => a.date.localeCompare(b.date)));
+    setStatus("done");
+  };
+
+  return (
+    <div style={{ width: 420, maxWidth: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Import data</div>
+      <div style={{ fontSize: 12, color: T.mut2, marginBottom: 16 }}>
+        Use a CSV or Excel file with the same columns as an exported sheet: Date, Type, Category, Subcategory, Note, Wallet, Amount, Currency.
+      </div>
+
+      {status === "done" ? (
+        <>
+          <div style={{ color: T.darkSoft, fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>
+            ✓ Imported {result.txns.length} transaction{result.txns.length !== 1 ? "s" : ""}.
+          </div>
+          <button className="primaryBtn" onClick={onClose} style={S.primaryBtn}>Done</button>
+        </>
+      ) : (
+        <>
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx" onChange={onFile} style={{ display: "none" }} />
+          <button onClick={pickFile} style={{ ...S.uploadAvatarBtn, alignSelf: "flex-start" }}><IconUpload /> Choose file</button>
+          {fileName && <div style={{ fontSize: 12, color: T.mut, marginTop: 8 }}>{fileName}</div>}
+
+          {status === "parsing" && <div style={{ fontSize: 12.5, color: T.mut2, marginTop: 12 }}>Reading file…</div>}
+          {status === "error" && <div style={{ fontSize: 12.5, color: T.rose, marginTop: 12 }}>{errMsg}</div>}
+
+          {status === "ready" && result && (
+            <div style={{ marginTop: 16, fontSize: 12.5, color: T.mut, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>
+                {result.txns.length} transaction{result.txns.length !== 1 ? "s" : ""} ready to import
+              </div>
+              {result.newHeads.length > 0 && <div>New categories: {result.newHeads.join(", ")}</div>}
+              {result.newSubcats.length > 0 && <div>New subcategories: {result.newSubcats.join(", ")}</div>}
+              {result.defaultedWallets > 0 && (
+                <div style={{ color: T.gold }}>{result.defaultedWallets} row(s) had an unrecognized wallet — defaulted to "{wallets[0]?.name}".</div>
+              )}
+              {result.errors.length > 0 && (
+                <div style={{ color: T.rose }}>
+                  {result.errors.length} row{result.errors.length !== 1 ? "s" : ""} skipped:
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                    {result.errors.slice(0, 6).map((e, i) => <li key={i}>{e}</li>)}
+                    {result.errors.length > 6 && <li>+{result.errors.length - 6} more</li>}
+                  </ul>
+                </div>
+              )}
+              <button className="primaryBtn" onClick={confirmImport} style={S.primaryBtn} disabled={result.txns.length === 0}>
+                Import {result.txns.length} transaction{result.txns.length !== 1 ? "s" : ""}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ───────────────────────  SMALL PIECES  ─────────────────────── */
 function Modal({ children, onClose }) {
   return (
     <div style={S.modalBack} onClick={onClose}>
       <div style={S.modal} onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} style={S.modalClose} title="Close">✕</button>
+        <button onClick={onClose} style={S.modalClose} title="Close" aria-label="Close">✕</button>
         {children}
       </div>
     </div>
@@ -2348,7 +3515,7 @@ function MiniCard({ label, value, color }) {
   return (
     <div style={S.heroMini}>
       <div style={{ fontSize: 10.5, letterSpacing: 1.3, color: "#BFE0C9", textTransform: "uppercase", fontWeight: 600 }}>{label}</div>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: color || "#fff", fontVariantNumeric: "tabular-nums", marginTop: 4, fontWeight: 700 }}>{value}</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, color: color || "#fff", fontVariantNumeric: "tabular-nums", marginTop: 4, fontWeight: 700, letterSpacing: -0.1 }}>{value}</div>
     </div>
   );
 }
@@ -2369,14 +3536,14 @@ function Card({ title, sub, filter, children }) {
 function Empty({ msg }) {
   return <div style={{ color: T.mut2, fontSize: 12.5, padding: "34px 0", textAlign: "center" }}>{msg}</div>;
 }
-function Tip({ active, payload, label }) {
+function Tip({ active, payload, label, currency = "PKR" }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 12px", fontSize: 12, boxShadow: "0 8px 20px rgba(16,40,30,0.14)" }}>
       {label && <div style={{ color: T.mut2, marginBottom: 4, fontWeight: 600 }}>{label}</div>}
       {payload.map((p) => (
         <div key={p.name} style={{ color: p.color || p.payload?.fill || T.text }}>
-          {p.name}: {fm(p.value)} PKR
+          {p.name}: {money(p.value, currency)}
         </div>
       ))}
     </div>
@@ -2392,6 +3559,7 @@ const CSS = `
 * { box-sizing: border-box; }
 body { margin: 0; }
 .field:focus { outline: 2px solid ${T.mint}66; border-color: ${T.darkSoft} !important; }
+.recharts-wrapper *:focus, .recharts-surface *:focus, .recharts-sector:focus, .recharts-pie-sector:focus { outline: none !important; }
 .chip:hover { border-color: ${T.darkSoft}; }
 .colorSwatch:hover { transform: scale(1.15); }
 .colorSwatchBtn:hover { box-shadow: 0 0 0 1.5px ${T.darkSoft}; }
@@ -2407,6 +3575,21 @@ body { margin: 0; }
 .txnRow:hover .editHint { opacity: 1; }
 @media (max-width: 640px) { .txnRow .editHint { opacity: 1; } }
 
+.statCatHead { cursor: pointer; padding: 8px 10px; margin: 0 -10px; border-radius: 12px; transition: background .18s ease; }
+.statCatHead:hover { background: ${T.surface2}; }
+.statCatHead:active { transform: scale(0.995); }
+.statChevron { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 6px;
+  background: ${T.surface2}; color: ${T.mut}; transition: transform .3s cubic-bezier(.4,0,.2,1), background .18s ease, color .18s ease; transform: rotate(-90deg); }
+.statChevron.open { transform: rotate(0deg); background: ${T.darkSoft}; color: #fff; }
+.statPctFill { transition: width .5s cubic-bezier(.22,1,.36,1); }
+.statSubWrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .32s cubic-bezier(.4,0,.2,1); }
+.statSubWrap.open { grid-template-rows: 1fr; }
+.statSubInner { overflow: hidden; }
+.statSubRow { opacity: 0; transform: translateX(-8px); animation: statSubIn .32s cubic-bezier(.2,.8,.3,1) forwards; border-radius: 8px; transition: background .15s ease; }
+.statSubRow:hover { background: ${T.surface2}; }
+.statSubBar { transition: width .5s cubic-bezier(.22,1,.36,1) .05s; }
+@keyframes statSubIn { to { opacity: 1; transform: translateX(0); } }
+
 .appShell { display: flex; min-height: 100vh; }
 .sidebar { width: 236px; flex-shrink: 0; }
 .sidebarNav { display: flex; flex-direction: column; gap: 4px; }
@@ -2420,6 +3603,12 @@ body { margin: 0; }
 }
 .dashGrid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; }
 @media (max-width: 980px) { .dashGrid { grid-template-columns: 1fr; } }
+.dashGridRev { display: grid; grid-template-columns: 1fr 1.6fr; gap: 20px; }
+@media (max-width: 980px) { .dashGridRev { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .settingsLayout { flex-direction: column; }
+  .settingsLayout > div:first-child { width: 100% !important; flex-direction: row !important; flex-wrap: wrap; }
+}
 
 .rangePopover { max-width: calc(100vw - 24px); }
 @media (max-width: 700px) {
@@ -2542,7 +3731,7 @@ const S = {
   },
   kicker: { fontSize: 11, letterSpacing: 2.2, color: "#9FCBAE", fontWeight: 600 },
   kicker2: { fontSize: 11, letterSpacing: 2.2, color: T.mut2, fontWeight: 600 },
-  heroNumber: { fontFamily: FONT_DISPLAY, fontSize: 40, fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 },
+  heroNumber: { fontFamily: FONT_DISPLAY, fontSize: 34, fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1.15, letterSpacing: -0.3 },
   heroCur: { fontSize: 16, color: "#9FCBAE", fontWeight: 400 },
   flowBarWrap: { height: 9, borderRadius: 6, background: "rgba(255,255,255,0.16)", overflow: "hidden" },
   flowBar: { height: "100%", background: T.mint, borderRadius: 6, transition: "width .4s" },
@@ -2568,7 +3757,7 @@ const S = {
   changeBadge: { fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20 },
   changeUp: { background: T.mintSoft, color: "#1F7A46" },
   changeDown: { background: T.roseSoft, color: T.rose },
-  statValue: { fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 700, fontVariantNumeric: "tabular-nums" },
+  statValue: { fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 700, fontVariantNumeric: "tabular-nums", letterSpacing: -0.2 },
   statLabel: { fontSize: 12.5, color: T.mut, marginTop: 4 },
 
   card: { background: T.surface, border: `1px solid ${T.line}`, borderRadius: 20, padding: 22, marginBottom: 20, boxShadow: "0 1px 2px rgba(16,40,30,0.04)", height: "100%", display: "flex", flexDirection: "column" },
@@ -2579,12 +3768,11 @@ const S = {
     fontFamily: FONT_BODY, textAlign: "left",
   },
   statTabActive: { color: T.text, borderBottom: `2px solid ${T.darkSoft}` },
-  statTabAmt: { fontWeight: 400, opacity: 0.8 },
   legendRow: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14.5, color: T.text, padding: "11px 0" },
   pctBadge: { fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 9, minWidth: 40, textAlign: "center" },
   donutCenter: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center", pointerEvents: "none" },
   donutCenterLabel: { fontSize: 11, color: T.mut2, textTransform: "capitalize", letterSpacing: 0.5 },
-  donutCenterValue: { fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, color: T.text, marginTop: 4 },
+  donutCenterValue: { fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, color: T.text, marginTop: 4, letterSpacing: -0.2 },
 
   linkBtn: { background: "transparent", border: "none", color: T.darkSoft, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "6px 4px" },
 
@@ -2616,7 +3804,7 @@ const S = {
   catDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   txnNote: { fontSize: 13.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: T.text },
   txnMeta: { fontSize: 11.5, color: T.mut2 },
-  txnAmt: { fontFamily: FONT_DISPLAY, fontSize: 14.5, fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0 },
+  txnAmt: { fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: -0.1 },
   editHint: { color: T.mut2, fontSize: 13, flexShrink: 0 },
   empty: { color: T.mut2, fontSize: 13, padding: "40px 0", textAlign: "center" },
   chipWrap: { display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" },
@@ -2688,10 +3876,10 @@ const S = {
     background: T.goldSoft, border: `1px solid ${T.gold}55`, borderRadius: 10, padding: "9px 14px",
     fontSize: 12.5, color: "#8A6416", marginBottom: 14,
   },
-  settingsTabBar: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 22 },
+  settingsTabBar: { display: "flex", flexDirection: "column", gap: 6, width: 180, flexShrink: 0 },
   settingsTabBtn: {
-    background: T.surface, border: `1px solid ${T.line}`, color: T.mut, padding: "8px 16px",
-    borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_BODY,
+    background: T.surface, border: `1px solid ${T.line}`, color: T.mut, padding: "9px 16px",
+    borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_BODY, textAlign: "left", width: "100%",
   },
   settingsTabBtnActive: { background: T.dark, color: "#fff", border: `1px solid ${T.dark}` },
   uploadAvatarBtn: {
