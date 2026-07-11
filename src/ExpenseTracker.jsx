@@ -4,14 +4,33 @@ import {
   ResponsiveContainer, Legend, CartesianGrid, AreaChart, Area, ReferenceLine,
 } from "recharts";
 import qyntLogo from "./qynt-logo.svg";
+import qyntLogoDark from "./qynt-logo-dark.svg";
 import { supabase } from "./supabaseClient";
 
+/* Tracks whatever theme is actually applied to <html data-theme>, so components (the logo, mainly)
+   can react to it without needing the theme setting threaded down as a prop from the top. */
+function useAppliedTheme() {
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "light");
+  useEffect(() => {
+    const el = document.documentElement;
+    const sync = () => setTheme(el.dataset.theme || "light");
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(el, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
+}
+
 /* ─────────────────────────  THEME  ───────────────────────── */
+/* Every value is a CSS custom property reference, not a literal hex — the actual light/dark values
+   live in the stylesheet (see THEME_CSS below) so the whole app repaints on a data-theme flip
+   without any component needing to know which theme is active. */
 const T = {
-  bg: "#F3F8F4", sidebar: "#EAF6EC", surface: "#FFFFFF", surface2: "#F0F8F2", line: "#E3EEE5",
-  dark: "#132A1E", darkSoft: "#1F4A34", mint: "#7FE6A0", mintSoft: "#E1F7E6",
-  gold: "#E0A93F", goldSoft: "#FBEFD9", rose: "#EF5A6F", roseSoft: "#FCE7EA",
-  text: "#16281D", mut: "#5E7568", mut2: "#93A99B",
+  bg: "var(--bg)", sidebar: "var(--sidebar)", surface: "var(--surface)", surface2: "var(--surface2)", line: "var(--line)",
+  dark: "var(--dark)", darkSoft: "var(--darkSoft)", deepGreen: "var(--deepGreen)", mint: "var(--mint)", mintSoft: "var(--mintSoft)",
+  gold: "var(--gold)", goldSoft: "var(--goldSoft)", rose: "var(--rose)", roseSoft: "var(--roseSoft)",
+  text: "var(--text)", mut: "var(--mut)", mut2: "var(--mut2)",
 };
 
 /* ─────────────────  DEFAULT CATEGORIES  ───────────────── */
@@ -187,8 +206,13 @@ const DAILY_LIMIT_KEY = "expense-tracker:dailylimit:v1";
 const DEFAULT_PROFILE = {
   firstName: "You", lastName: "", email: "", color: "#2E9B8F", avatar: "",
   sex: "", dobDay: "", dobMonth: "", dobYear: "",
-  currency: "PKR", language: "English",
+  currency: "PKR", language: "English", theme: "system",
 };
+const THEME_OPTIONS = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
+];
 const CURRENCY_OPTIONS = ["PKR", "USD", "EUR", "GBP", "AED", "SAR", "INR"];
 const LANGUAGE_OPTIONS = ["English", "Urdu", "Arabic"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -721,7 +745,7 @@ const QUICK_PICKS = [
   ["today", "Today"],
 ];
 
-function StatusBar({ scope, setScope }) {
+function StatusBar({ scope, setScope, wallets, walletFilter, setWalletFilter }) {
   const [open, setOpen] = useState(false);
   const canStep = scope.mode === "year" || scope.mode === "month" || scope.mode === "week";
 
@@ -741,10 +765,10 @@ function StatusBar({ scope, setScope }) {
 
   return (
     <div style={S.statusBar}>
-      <button disabled={!canStep} onClick={() => step(-1)} style={{ ...S.stepBtn, ...(canStep ? {} : S.stepBtnDisabled) }}>‹</button>
+      <button className="desktopOnly" disabled={!canStep} onClick={() => step(-1)} style={{ ...S.stepBtn, ...(canStep ? {} : S.stepBtnDisabled) }}>‹</button>
       <div style={{ position: "relative" }}>
-        <button onClick={() => setOpen((o) => !o)} style={{ ...S.rangeTrigger, ...(open ? S.rangeTriggerActive : {}) }}>
-          <IconCalendar /> {scopeLabel(scope)} <IconChevronDown />
+        <button onClick={() => setOpen((o) => !o)} style={{ ...S.rangeTrigger, ...(open ? S.rangeTriggerActive : {}) }} className="rangeTriggerBtn">
+          <IconCalendar /> <span className="rangeTriggerLabel">{scopeLabel(scope)}</span> <IconChevronDown />
         </button>
         {open && (
           <>
@@ -753,7 +777,13 @@ function StatusBar({ scope, setScope }) {
           </>
         )}
       </div>
-      <button disabled={!canStep} onClick={() => step(1)} style={{ ...S.stepBtn, ...(canStep ? {} : S.stepBtnDisabled) }}>›</button>
+      <button className="desktopOnly" disabled={!canStep} onClick={() => step(1)} style={{ ...S.stepBtn, ...(canStep ? {} : S.stepBtnDisabled) }}>›</button>
+      {wallets && (
+        <FilterPicker value={walletFilter} placeholderLabel="All wallets" triggerIcon={<IconWallet />}
+          triggerStyle={{ flex: "0 0 auto" }}
+          options={[{ value: "all", label: "All wallets" }, ...wallets.map((w) => ({ value: w.id, label: w.name }))]}
+          onChange={setWalletFilter} />
+      )}
     </div>
   );
 }
@@ -797,15 +827,20 @@ function RangePopover({ scope, setScope, onClose }) {
 
   return (
     <div className="rangePopover" style={S.popover} onClick={(e) => e.stopPropagation()}>
-      <div style={S.popoverCalendars}>
+      <div className="popoverCalendars" style={S.popoverCalendars}>
         <div style={S.popoverNav}>
           <button onClick={() => shiftView(-1)} style={S.stepBtn}>‹</button>
-          <div style={S.popoverNavLabel}>{leftLabel} – {rightLabel}</div>
+          <div className="popoverNavLabel" style={S.popoverNavLabel}>
+            <span className="desktopOnly" style={{ display: "inline" }}>{leftLabel} – {rightLabel}</span>
+            <span className="mobileOnly" style={{ display: "inline" }}>{leftLabel}</span>
+          </div>
           <button onClick={() => shiftView(1)} style={S.stepBtn}>›</button>
         </div>
-        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+        <div className="calendarRow" style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
           <MonthGrid year={viewYear} month={viewMonth} pendingFrom={pendingFrom} pendingTo={pendingTo} onPick={pickDay} />
-          <MonthGrid year={rightYear} month={rightMonth} pendingFrom={pendingFrom} pendingTo={pendingTo} onPick={pickDay} />
+          <div className="desktopOnly">
+            <MonthGrid year={rightYear} month={rightMonth} pendingFrom={pendingFrom} pendingTo={pendingTo} onPick={pickDay} />
+          </div>
         </div>
         <div style={S.popoverHint}>
           {pendingFrom
@@ -837,17 +872,17 @@ function MonthGrid({ year, month, pendingFrom, pendingTo, onPick }) {
   return (
     <div>
       <div style={S.monthGridLabel}>{label}</div>
-      <div style={S.monthGridRow}>{["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <span key={i} style={S.monthGridDow}>{d}</span>)}</div>
+      <div className="monthGridRow" style={S.monthGridRow}>{["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <span key={i} style={S.monthGridDow}>{d}</span>)}</div>
       {weeks.map((week, wi) => (
-        <div key={wi} style={S.monthGridRow}>
+        <div key={wi} className="monthGridRow" style={S.monthGridRow}>
           {week.map((d, di) => {
-            if (!d) return <span key={di} style={S.monthGridCell} />;
+            if (!d) return <span key={di} className="monthGridCell" style={S.monthGridCell} />;
             const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
             const isToday = dateStr === todayStr;
             const inRange = pendingFrom && pendingTo && dateStr >= pendingFrom && dateStr <= pendingTo;
             const isEdge = dateStr === pendingFrom || dateStr === pendingTo;
             return (
-              <button key={di} onClick={() => onPick(dateStr)}
+              <button key={di} className="monthGridCell" onClick={() => onPick(dateStr)}
                 style={{
                   ...S.monthGridCell, ...S.monthGridDay,
                   ...(isToday ? S.monthGridToday : {}),
@@ -865,6 +900,23 @@ function MonthGrid({ year, month, pendingFrom, pendingTo, onPick }) {
 }
 
 /* ───────────────────────  ICONS  ─────────────────────── */
+function IconGridMenu() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="3" width="8" height="8" rx="2.4" fill="currentColor" />
+      <rect x="13" y="3" width="8" height="8" rx="2.4" fill="currentColor" />
+      <rect x="3" y="13" width="8" height="8" rx="2.4" fill="currentColor" />
+      <rect x="13" y="13" width="8" height="8" rx="2.4" fill="currentColor" />
+    </svg>
+  );
+}
+function IconX() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
 function IconDashboard() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -1067,10 +1119,11 @@ const NAV_ITEMS = [
 ];
 
 function Sidebar({ tab, setTab, currency }) {
+  const theme = useAppliedTheme();
   return (
     <aside className="sidebar" style={S.sidebar}>
       <div style={S.sidebarLogo}>
-        <img src={qyntLogo} alt="QYNT" style={{ height: 34, width: "auto", display: "block" }} />
+        <img src={theme === "dark" ? qyntLogoDark : qyntLogo} alt="QYNT" style={{ height: 34, width: "auto", display: "block" }} />
       </div>
       <nav className="sidebarNav" style={S.sidebarNav}>
         {NAV_ITEMS.map((it) => (
@@ -1080,8 +1133,154 @@ function Sidebar({ tab, setTab, currency }) {
           </button>
         ))}
       </nav>
-      <div className="sidebarFoot" style={S.sidebarFoot}>Personal finance · {currency}</div>
     </aside>
+  );
+}
+
+/* ─────────────  MOBILE: floating bottom nav + FAB  ───────────── */
+/* Single round nav button, bottom-center — tap opens the Hub (all destinations + quick add),
+   tap again (now showing an ✕) closes it. Replaces the old multi-item pill nav: one predictable
+   control instead of a bar of icons, matching the reference "Hub" pattern. */
+function NavHubButton({ open, onToggle }) {
+  return (
+    <button className="hubNavBtn" onClick={onToggle} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open}>
+      <span className="hubNavIconWrap">
+        <span className={`hubNavIconLayer${open ? "" : " show"}`} aria-hidden="true"><IconGridMenu /></span>
+        <span className={`hubNavIconLayer${open ? " show" : ""}`} aria-hidden="true"><IconX /></span>
+      </span>
+    </button>
+  );
+}
+
+/* ─────────────  MOBILE: bottom sheet shell  ───────────── */
+function Sheet({ onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="sheetBack" onClick={onClose}>
+      <div className="sheet" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHandle" />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* A tappable field that opens a bottom sheet list of options instead of a native <select> —
+   bigger touch targets and a picker that matches the rest of the app's sheet language. */
+function PickerField({ label, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value);
+  return (
+    <>
+      <label style={S.label}>{label}</label>
+      <button type="button" onClick={() => setOpen(true)}
+        style={{ ...S.input, width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left", cursor: "pointer", minHeight: 44 }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current ? current.label : "Select…"}</span>
+        <span style={{ color: T.mut2, flexShrink: 0, marginLeft: 8 }}><IconChevronDown /></span>
+      </button>
+      {open && (
+        <Sheet onClose={() => setOpen(false)}>
+          <div className="sectionTitleLg" style={{ textAlign: "center", marginBottom: 14 }}>{label}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "50vh", overflowY: "auto" }}>
+            {options.map((o) => (
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 12px", minHeight: 44,
+                  background: o.value === value ? T.mintSoft : "none", border: "none", borderRadius: 12, fontSize: 15,
+                  fontWeight: o.value === value ? 700 : 500, color: T.text, textAlign: "left",
+                }}>
+                {o.label}
+                {o.value === value && <span style={{ color: T.darkSoft }}><IconCheck /></span>}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+/* Compact branded filter trigger — same trigger-button + bottom-sheet-list pattern as PickerField
+   and the date-range picker, instead of a native OS <select> which looks off-brand and inconsistent. */
+function FilterPicker({ value, options, onChange, placeholderLabel, disabled, triggerIcon, triggerStyle }) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value);
+  return (
+    <>
+      <button type="button" disabled={disabled} onClick={() => setOpen(true)} style={{ ...S.filterPickerTrigger, ...triggerStyle, ...(disabled ? S.filterPickerTriggerDisabled : {}) }}>
+        {triggerIcon}
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current ? current.label : placeholderLabel}</span>
+        <span style={{ color: T.mut2, flexShrink: 0 }}><IconChevronDown /></span>
+      </button>
+      {open && (
+        <Sheet onClose={() => setOpen(false)}>
+          <div className="sectionTitleLg" style={{ textAlign: "center", marginBottom: 14 }}>{placeholderLabel}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "50vh", overflowY: "auto" }}>
+            {options.map((o) => (
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 12px", minHeight: 44,
+                  background: o.value === value ? T.mintSoft : "none", border: "none", borderRadius: 12, fontSize: 15,
+                  fontWeight: o.value === value ? 700 : 500, color: T.text, textAlign: "left",
+                }}>
+                {o.label}
+                {o.value === value && <span style={{ color: T.darkSoft }}><IconCheck /></span>}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+/* ─────────────  MOBILE: unified Hub (all navigation + quick add, one sheet)  ───────────── */
+/* Every tile shares one neutral icon treatment (no per-tile color coding) so the grid reads as
+   uniform; only the active tab (filled dark) stands out. Home leads the grid; quick-add actions
+   come right after it since logging a transaction is the single most frequent action. */
+const NAV_HUB_ITEMS = [
+  { key: "dashboard", label: "Home", Icon: IconDashboard },
+  { key: "add-expense", label: "Add Expense", Icon: IconArrowUp, isAction: true },
+  { key: "add-income", label: "Add Income", Icon: IconArrowDown, isAction: true },
+  { key: "transactions", label: "Transactions", Icon: IconReceipt },
+  { key: "statistics", label: "Statistics", Icon: IconPieChart },
+  { key: "wallets", label: "Wallets", Icon: IconWallet },
+  { key: "budgets", label: "Budgets", Icon: IconGauge },
+  { key: "savings", label: "Savings", Icon: IconTarget },
+  { key: "forecast", label: "Forecast", Icon: IconTrend },
+  { key: "vault", label: "Family vault", Icon: IconShield },
+  { key: "intelligence", label: "Intelligence", Icon: IconSpark },
+  { key: "advisor", label: "AI advisor", Icon: IconChat },
+  { key: "settings", label: "Settings", Icon: IconGear },
+];
+function NavHub({ onClose, tab, goTab, setAddPreset }) {
+  const go = (fn) => { fn(); onClose(); };
+  const actionHandlers = {
+    "add-expense": () => { setAddPreset("expense"); goTab("add"); },
+    "add-income": () => { setAddPreset("income"); goTab("add"); },
+  };
+  return (
+    <Sheet onClose={onClose}>
+      <div className="sectionTitleLg" style={{ textAlign: "center", marginBottom: 16 }}>Hub</div>
+      <div className="hubGrid">
+        {NAV_HUB_ITEMS.map((it) => {
+          const active = !it.isAction && tab === it.key;
+          return (
+            <button key={it.key} className={`hubCard${active ? " active" : ""}`}
+              onClick={() => go(it.isAction ? actionHandlers[it.key] : () => goTab(it.key))}>
+              <span className="hubIcon" style={{ background: active ? T.dark : T.surface2, color: active ? "#fff" : T.text }}>
+                <it.Icon />
+              </span>
+              {it.label}
+            </button>
+          );
+        })}
+      </div>
+    </Sheet>
   );
 }
 
@@ -1102,32 +1301,24 @@ const PAGE_COPY = {
 };
 const TODAY_LABEL = new Date().toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-function Topbar({ tab, saveState, scope, setScope, search, onSearchChange, onLog, profile, onOpenSettings, onLogout }) {
-  const showFilter = STATUS_BAR_TABS.has(tab);
+function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWalletFilter, search, onSearchChange, onLog, profile, onOpenSettings, onLogout }) {
+  const showControls = STATUS_BAR_TABS.has(tab);
   const fullName = `${profile?.firstName || ""} ${profile?.lastName || ""}`.trim();
   const initials = (fullName || "Y").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   return (
-    <header style={S.topbar}>
-      <div>
-        <div style={S.pageTitle}>{PAGE_COPY[tab]}</div>
-        <div style={S.pageSub}>{TODAY_LABEL}</div>
-      </div>
-      <div style={S.topbarControls}>
-        {showFilter && <StatusBar scope={scope} setScope={setScope} />}
-        <div style={S.searchWrap}>
-          <IconSearch />
-          <input className="field" placeholder="Search transactions…"
-            value={search} onChange={(e) => onSearchChange(e.target.value)} style={S.searchInput} />
+    <header className="appTopbar" style={S.topbar}>
+      {/* Title and account trigger share a row of their own so the avatar always stays pinned to
+          the top-right corner — otherwise, once the filter/search controls below wrap onto a
+          second line on narrow phones, the avatar would wrap down with them instead of staying put. */}
+      <div className="topbarTitleRow" style={S.topbarTitleRow}>
+        <div>
+          <div style={S.pageTitle}>{PAGE_COPY[tab]}</div>
+          <div style={S.pageSub}>{TODAY_LABEL}</div>
         </div>
-        {saveState && (
-          <div style={{ ...S.savePill, ...(saveState === "error" ? S.savePillError : {}) }}>
-            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : "⚠ Couldn't save"}
-          </div>
-        )}
-        <button className="primaryBtn" onClick={onLog} style={S.logBtn}><IconPlus /> Log</button>
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", flexShrink: 0 }}>
           <button onClick={() => setMenuOpen((o) => !o)} title="Account" style={S.accountTrigger}>
             {fullName && <span style={S.accountName}>{fullName}</span>}
             <span style={{ ...S.avatar, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1155,14 +1346,47 @@ function Topbar({ tab, saveState, scope, setScope, search, onSearchChange, onLog
           )}
         </div>
       </div>
+
+      {showControls && (
+      <div style={S.topbarControls}>
+        <StatusBar scope={scope} setScope={setScope} wallets={wallets} walletFilter={walletFilter} setWalletFilter={setWalletFilter} />
+
+        {/* Desktop only — removed from the mobile topbar entirely to cut clutter. Collapsed to an
+            icon by default so it doesn't take up permanent header width; clicking it reveals the
+            actual input. */}
+        <div className="desktopOnly">
+          {searchOpen ? (
+            <div style={S.searchWrap}>
+              <IconSearch />
+              <input className="field" autoFocus placeholder="Search transactions…"
+                value={search} onChange={(e) => onSearchChange(e.target.value)}
+                onBlur={() => { if (!search) setSearchOpen(false); }} style={S.searchInput} />
+            </div>
+          ) : (
+            <button aria-label="Search transactions" onClick={() => setSearchOpen(true)} style={S.iconTrigger}>
+              <IconSearch />
+            </button>
+          )}
+        </div>
+
+        {saveState && (
+          <div style={{ ...S.savePill, ...(saveState === "error" ? S.savePillError : {}) }}>
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : "⚠ Couldn't save"}
+          </div>
+        )}
+        {/* On mobile, the central Hub button already covers "add a transaction". */}
+        <button className="primaryBtn desktopOnly" onClick={onLog} style={S.logBtn}><IconPlus /> Log</button>
+      </div>
+      )}
     </header>
   );
 }
 
-const STATUS_BAR_TABS = new Set(["dashboard", "transactions", "statistics", "wallets", "savings"]);
+const STATUS_BAR_TABS = new Set(["dashboard", "transactions", "statistics"]);
 
 /* ───────────────────────  AUTH  ─────────────────────── */
 function AuthScreen() {
+  const theme = useAppliedTheme();
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1201,7 +1425,7 @@ function AuthScreen() {
       <style>{CSS}</style>
       <form onSubmit={submit} style={{ ...S.formCard, width: 340 }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
-          <img src={qyntLogo} alt="QYNT" style={{ height: 32, width: "auto" }} />
+          <img src={theme === "dark" ? qyntLogoDark : qyntLogo} alt="QYNT" style={{ height: 32, width: "auto" }} />
         </div>
         <div style={S.segment}>
           <button type="button" onClick={() => switchMode("login")} style={{ ...S.segBtn, flex: 1, ...(mode === "login" ? S.segBtnActive : {}) }}>Log in</button>
@@ -1248,8 +1472,10 @@ export default function ExpenseTracker() {
   const [tab, setTab] = useState("dashboard");
   const [settingsTab, setSettingsTab] = useState("profile");
   const [scope, setScope] = useState(defaultScope());
+  const [walletFilter, setWalletFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [txnFilter, setTxnFilter] = useState(null); // { head, sub } | null — consumed once by Transactions on mount
+  const [hubOpen, setHubOpen] = useState(false);
   const [saveState, setSaveState] = useState("");
   const [editing, setEditing] = useState(null); // txn being edited
   const [addPreset, setAddPreset] = useState(null); // "income" | "expense" | null
@@ -1286,6 +1512,22 @@ export default function ExpenseTracker() {
       setCats(catsRes);
     })();
   }, [session]);
+
+  // Apply the chosen theme to the whole document. "system" tracks the OS setting live, including
+  // if the user flips their OS theme while the app is already open.
+  useEffect(() => {
+    const mode = profile?.theme || "system";
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const dark = mode === "dark" || (mode === "system" && media.matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    };
+    apply();
+    if (mode === "system") {
+      media.addEventListener("change", apply);
+      return () => media.removeEventListener("change", apply);
+    }
+  }, [profile?.theme]);
 
   const flash = (state) => {
     setSaveState(state);
@@ -1326,6 +1568,15 @@ export default function ExpenseTracker() {
     try { await saveKey(session.user.id, DAILY_LIMIT_KEY, next); flash("saved"); }
     catch { flash("error"); }
   };
+  // Deletion guards mirror Settings' rules exactly, since these are the same underlying records —
+  // just reachable from their own dedicated pages now, not only from Settings.
+  const deleteBudgetById = (id) => { persistBudgets(budgets.filter((b) => b.id !== id)); return null; };
+  const deleteSavingById = (id) => {
+    const usedCount = txns.filter((t) => t.savingSpaceId === id).length;
+    if (usedCount > 0) return `This saving space is used by ${usedCount} transaction(s) — reassign them first.`;
+    persistSavings(savings.filter((s) => s.id !== id));
+    return null;
+  };
 
   const addTxn = (t) => persistTxns([...txns, t].sort((a, b) => a.date.localeCompare(b.date)));
   const updateTxn = (t) => persistTxns(txns.map((x) => (x.id === t.id ? t : x)).sort((a, b) => a.date.localeCompare(b.date)));
@@ -1358,38 +1609,44 @@ export default function ExpenseTracker() {
 
   if (!txns || !cats || !wallets || !budgets || !savings || !profile || dailyLimit == null) {
     return (
-      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={S.page}>
         <style>{CSS}</style>
-        <div style={{ color: T.mut, fontFamily: FONT_BODY, letterSpacing: 2, fontSize: 13 }}>OPENING YOUR LEDGER…</div>
+        <SkeletonDashboard />
       </div>
     );
   }
+
+  const filteredTxns = walletFilter === "all" ? txns : txns.filter((t) => t.walletId === walletFilter);
+  const filteredWallets = walletFilter === "all" ? wallets : wallets.filter((w) => w.id === walletFilter);
 
   return (
     <div className="appShell" style={S.page}>
       <style>{CSS}</style>
       <Sidebar tab={tab} setTab={goTab} currency={profile.currency} />
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="mobileMain" style={{ flex: 1, minWidth: 0 }}>
         <Topbar tab={tab} saveState={saveState} scope={scope} setScope={setScope}
+          wallets={wallets} walletFilter={walletFilter} setWalletFilter={setWalletFilter}
           search={search} onSearchChange={handleSearchChange} onLog={() => goTab("add")}
           profile={profile} onOpenSettings={openProfileSettings} onLogout={() => supabase.auth.signOut()} />
 
         {tab === "dashboard" && (
-          <Dashboard txns={txns} catColor={catColor} cats={cats} setTab={goTab} setAddPreset={setAddPreset} scope={scope}
-            savings={savings} dailyLimit={dailyLimit} budgets={budgets} currency={profile.currency} wallets={wallets}
-            setSettingsTab={setSettingsTab} onViewSubcategory={viewSubcategoryTxns} />
+          <Dashboard txns={filteredTxns} catColor={catColor} cats={cats} setTab={goTab} setAddPreset={setAddPreset} scope={scope}
+            savings={savings} dailyLimit={dailyLimit} budgets={budgets} currency={profile.currency} wallets={filteredWallets}
+            setSettingsTab={setSettingsTab} onViewSubcategory={viewSubcategoryTxns} firstName={profile.firstName} />
         )}
         {tab === "transactions" && (
-          <Transactions txns={txns} cats={cats} catColor={catColor} onEdit={setEditing} scope={scope}
+          <Transactions txns={filteredTxns} cats={cats} catColor={catColor} onEdit={setEditing} onDelete={deleteTxn} scope={scope}
             search={search} setSearch={setSearch} currency={profile.currency}
             presetFilter={txnFilter} onConsumePresetFilter={() => setTxnFilter(null)} />
         )}
         {tab === "statistics" && (
-          <Statistics txns={txns} cats={cats} scope={scope} currency={profile.currency} budgets={budgets} onViewSubcategory={viewSubcategoryTxns} />
+          <Statistics txns={filteredTxns} cats={cats} scope={scope} currency={profile.currency} budgets={budgets} wallets={filteredWallets} onViewSubcategory={viewSubcategoryTxns} />
         )}
         {tab === "add" && (
-          <TxnForm cats={cats} presetType={addPreset} wallets={wallets} savings={savings} currency={profile.currency}
-            onSave={(t) => { addTxn(t); goTab("transactions"); }} />
+          <Modal onClose={() => goTab("dashboard")}>
+            <TxnForm cats={cats} presetType={addPreset} wallets={wallets} savings={savings} currency={profile.currency} embedded
+              onSave={(t) => { addTxn(t); goTab("transactions"); }} />
+          </Modal>
         )}
         {tab === "settings" && (
           <Settings cats={cats} txns={txns} persistCats={persistCats} persistTxns={persistTxns} catColor={catColor}
@@ -1400,9 +1657,13 @@ export default function ExpenseTracker() {
             settingsTab={settingsTab} setSettingsTab={setSettingsTab}
             onLogout={() => supabase.auth.signOut()} onResetData={resetAllData} />
         )}
-        {tab === "wallets" && <Wallets txns={txns} wallets={wallets} scope={scope} currency={profile.currency} />}
-        {tab === "budgets" && <Budgets txns={txns} budgets={budgets} catColor={catColor} currency={profile.currency} />}
-        {tab === "savings" && <SavingSpaces txns={txns} savings={savings} scope={scope} currency={profile.currency} />}
+        {tab === "wallets" && <Wallets txns={filteredTxns} wallets={filteredWallets} scope={scope} currency={profile.currency}
+          onAddWallet={() => { setSettingsTab("wallets"); goTab("settings"); }} />}
+        {tab === "budgets" && <Budgets txns={txns} budgets={budgets} catColor={catColor} currency={profile.currency}
+          onEditBudget={() => { setSettingsTab("budgets"); goTab("settings"); }} onDeleteBudget={deleteBudgetById} />}
+        {tab === "savings" && <SavingSpaces txns={txns} savings={savings} currency={profile.currency}
+          onAddGoal={() => { setSettingsTab("savings"); goTab("settings"); }}
+          onEditSaving={() => { setSettingsTab("savings"); goTab("settings"); }} onDeleteSaving={deleteSavingById} />}
         {tab === "forecast" && <Forecast txns={txns} currency={profile.currency} />}
         {tab === "vault" && (
           <ComingSoon title="Family vault" blurb="Shared budgets, goals, and visibility for everyone in your household." />
@@ -1417,17 +1678,22 @@ export default function ExpenseTracker() {
 
       {editing && (
         <Modal onClose={() => setEditing(null)}>
-          <TxnForm cats={cats} initial={editing} wallets={wallets} savings={savings} currency={profile.currency}
+          <TxnForm cats={cats} initial={editing} wallets={wallets} savings={savings} currency={profile.currency} embedded
             onSave={(t) => { updateTxn(t); setEditing(null); }}
             onDelete={() => { deleteTxn(editing.id); setEditing(null); }} />
         </Modal>
+      )}
+
+      <NavHubButton open={hubOpen} onToggle={() => setHubOpen((o) => !o)} />
+      {hubOpen && (
+        <NavHub onClose={() => setHubOpen(false)} tab={tab} goTab={goTab} setAddPreset={setAddPreset} />
       )}
     </div>
   );
 }
 
 /* ───────────────────────  DASHBOARD  ─────────────────────── */
-function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings, dailyLimit, budgets, currency, wallets, setSettingsTab, onViewSubcategory }) {
+function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings, dailyLimit, budgets, currency, wallets, setSettingsTab, onViewSubcategory, firstName }) {
   const openSettings = (subTab) => { setSettingsTab(subTab); setTab("settings"); };
   const scopedTxns = txns.filter((t) => inScope(t.date, scope));
   const income = scopedTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -1446,9 +1712,15 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
 
   return (
     <main style={S.main}>
+      <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 16 }}>
+        Welcome back,<br />{firstName || "there"} 👋
+      </div>
+      <div className="desktopOnly" style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 18 }}>
+        Welcome back, {firstName || "there"} 👋
+      </div>
       {/* hero + quick actions */}
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 20 }}>
-        <section style={S.hero}>
+        <section className="heroSection" style={S.hero}>
           <div style={S.kicker}>NET FLOW · {scopeLabel(scope).toUpperCase()}</div>
           <div style={{ ...S.heroNumber, color: net >= 0 ? "#fff" : "#FFB3C0" }}>
             {net >= 0 ? "+" : "−"}{fm(Math.abs(net))}<span style={S.heroCur}> {currency}</span>
@@ -1459,14 +1731,14 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
             <span><i style={{ ...S.dot, background: T.gold }} />Earned {money(income, currency)}</span>
             <span style={{ color: "#9FCBAE" }}>{income > 0 ? `${spentPct.toFixed(0)}% of income spent` : ""}</span>
           </div>
-          <div style={S.heroMiniRow}>
+          <div className="heroMiniRow" style={S.heroMiniRow}>
             <MiniCard label="Income" value={money(income, currency)} color={T.gold} />
             <MiniCard label="Expenses" value={money(-expense, currency)} color="#FFB3C0" />
-            <MiniCard label="Transactions" value={scopedTxns.length} color="#CFE9D6" />
+            <MiniCard label={<><span className="desktopOnly">Transactions</span><span className="mobileOnly">Txns</span></>} value={scopedTxns.length} color="#CFE9D6" />
           </div>
         </section>
 
-        <section style={S.quickActions}>
+        <section className="quickActionsSection" style={S.quickActions}>
           <div style={S.quickTitle}>Quick actions</div>
           <div style={S.quickGrid}>
             <button className="quickBtn" style={S.quickBtn} onClick={() => { setAddPreset("expense"); setTab("add"); }}>
@@ -1490,7 +1762,7 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
       </div>
 
       {/* stat row */}
-      <div style={S.statRow}>
+      <div className="statRow" style={S.statRow}>
         <StatCard label="Current Wallet Balance" value={money(walletBalance, currency)} valueColor={walletBalance >= 0 ? T.darkSoft : T.rose} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconWallet} />
         <StatCard label="Total Period Change" value={money(net, currency)} valueColor={net >= 0 ? T.darkSoft : T.rose} change={netChange} iconBg={T.goldSoft} iconColor={T.gold} icon={IconScale} />
         <StatCard label="Total Period Expenses" value={money(-expense, currency)} change={expenseChange} iconBg={T.roseSoft} iconColor={T.rose} icon={IconArrowUp} />
@@ -1511,13 +1783,18 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
         <FinanceScoreCard txns={txns} budgets={budgets} scope={scope} />
       </div>
 
-      <div className="dashGridRev" style={{ marginBottom: 20 }}>
+      {/* Daily limit doesn't need much width, but the full-year heatmap (53 weeks) needs the whole
+          row — squeezed into a grid column it was narrower than the grid's content, forcing an
+          unwanted horizontal scroll even on wide desktop screens. */}
+      <div style={{ marginBottom: 20 }}>
         <DailyLimitCard txns={txns} dailyLimit={dailyLimit} onSetLimit={() => openSettings("limit")} currency={currency} />
+      </div>
+      <div style={{ marginBottom: 20 }}>
         <BurnRateHeatmap txns={txns} currency={currency} />
       </div>
 
       <Card title="Recent transactions" sub="Latest activity"
-        filter={<button className="linkBtn" style={S.linkBtn} onClick={() => setTab("transactions")}>View all →</button>}>
+        filter={<button style={S.viewAllPill} onClick={() => setTab("transactions")}>View all →</button>}>
         <RecentTxnsTable txns={recentTx} catColor={catColor} currency={currency} />
       </Card>
     </main>
@@ -1665,7 +1942,7 @@ function StatisticCard({ scopedTxns, cats, income, expense, currency, onViewSubc
         </div>
       )}
       {hasMoreCategories && (
-        <button className="linkBtn" style={{ ...S.linkBtn, display: "block", margin: "10px auto 0" }} onClick={onViewMore}>
+        <button style={{ ...S.viewAllPill, margin: "10px auto 0" }} onClick={onViewMore}>
           View more →
         </button>
       )}
@@ -1790,7 +2067,7 @@ function SavingPlansCard({ txns, savings, onAddPlans, currency }) {
 
   return (
     <Card title="Saving Plans"
-      filter={<button className="linkBtn" style={S.linkBtn} onClick={onAddPlans}>+ Add Plans</button>}>
+      filter={<button style={S.viewAllPill} onClick={onAddPlans}>+ Add Plans</button>}>
       <div style={{ marginBottom: 14 }}>
         <div style={S.kicker2}>TOTAL SAVINGS</div>
         <div style={{ fontFamily: FONT_DISPLAY, fontSize: 21, fontWeight: 700, color: T.text, marginTop: 4, letterSpacing: -0.2 }}>{money(totalSaved, currency)}</div>
@@ -1859,18 +2136,26 @@ function FinanceScoreCard({ txns, budgets, scope }) {
 }
 
 /* ───────────────────────  STATISTICS (full breakdown page)  ─────────────────────── */
-function Statistics({ txns, cats, scope, currency, budgets, onViewSubcategory }) {
+function Statistics({ txns, cats, scope, currency, budgets, wallets, onViewSubcategory }) {
   const scopedTxns = txns.filter((t) => inScope(t.date, scope));
   const income = scopedTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
   const expense = scopedTxns.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0);
   const net = income + expense;
+  const walletBalance = (wallets || []).reduce((sum, w) =>
+    sum + w.startingBalance + txns.filter((t) => t.walletId === w.id).reduce((s, t) => s + t.amount, 0), 0);
+
+  const incomeChange = prevPeriodChange(txns, scope, (t) => (t.amount > 0 ? t.amount : 0));
+  const expenseChangeRaw = prevPeriodChange(txns, scope, (t) => (t.amount < 0 ? -t.amount : 0));
+  const expenseChange = expenseChangeRaw == null ? null : -expenseChangeRaw;
+  const netChange = prevPeriodChange(txns, scope, (t) => t.amount);
 
   return (
     <main style={S.main}>
-      <div style={S.statRow}>
-        <StatCard label="Total Income" value={money(income, currency)} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconArrowDown} />
-        <StatCard label="Total Expenses" value={money(-expense, currency)} iconBg={T.roseSoft} iconColor={T.rose} icon={IconArrowUp} />
-        <StatCard label="Net" value={money(net, currency)} valueColor={net >= 0 ? T.darkSoft : T.rose} iconBg={T.goldSoft} iconColor={T.gold} icon={IconScale} />
+      <div className="statRow" style={S.statRow}>
+        <StatCard label="Current Wallet Balance" value={money(walletBalance, currency)} valueColor={walletBalance >= 0 ? T.darkSoft : T.rose} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconWallet} />
+        <StatCard label="Total Period Change" value={money(net, currency)} valueColor={net >= 0 ? T.darkSoft : T.rose} change={netChange} iconBg={T.goldSoft} iconColor={T.gold} icon={IconScale} />
+        <StatCard label="Total Period Expenses" value={money(-expense, currency)} change={expenseChange} iconBg={T.roseSoft} iconColor={T.rose} icon={IconArrowUp} />
+        <StatCard label="Total Period Income" value={money(income, currency)} change={incomeChange} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconArrowDown} />
       </div>
 
       <div className="dashGrid" style={{ marginBottom: 20 }}>
@@ -1947,7 +2232,7 @@ function BurnRateHeatmap({ txns, currency }) {
     if (v <= thresholds.q75) return 3;
     return 4;
   };
-  const bucketColor = [T.surface2, T.mintSoft, T.mint, T.darkSoft, T.dark];
+  const bucketColor = [T.surface2, T.mintSoft, T.mint, T.deepGreen, T.dark];
 
   const weeks = useMemo(() => {
     const jan1 = new Date(year, 0, 1);
@@ -1980,54 +2265,77 @@ function BurnRateHeatmap({ txns, currency }) {
     return labels;
   }, [weeks]);
 
-  const rowLabels = ["", "Mon", "", "Wed", "", "Fri", ""];
+  const rowLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  return (
-    <Card title="Burn Rate Heatmap" sub="Full year · daily spend intensity">
-      <div style={{ overflowX: "auto", paddingBottom: 6 }}>
-        <div style={{ display: "flex" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap, marginRight: 8, marginTop: 18 }}>
-            {rowLabels.map((l, i) => (
-              <div key={i} style={{ height: cell, fontSize: 10, color: T.mut2, lineHeight: `${cell}px` }}>{l}</div>
+  /* Full 53-week grid can't fit any phone width without horizontal scrolling, which reads badly
+     as a "swipe to see the chart" experience. Mobile instead gets a condensed recent-weeks grid
+     (bigger cells, no scroll needed); desktop keeps the full-year view. */
+  const MOBILE_WEEKS = 12;
+  /* `weeks` spans the full calendar year (Jan–Dec), so slicing from the end grabs the year's last
+     weeks — usually still in the future relative to today, showing an empty-looking grid. Slice
+     around today's actual week instead. */
+  const todayWeekIndex = weeks.findIndex((week) => week.includes(todayStr));
+  const mobileWeeks = todayWeekIndex === -1
+    ? weeks.slice(-MOBILE_WEEKS)
+    : weeks.slice(Math.max(0, todayWeekIndex - MOBILE_WEEKS + 1), todayWeekIndex + 1);
+  const mCell = 12, mGap = 3;
+
+  const renderGrid = (weekList, cellSize, gapSize, showMonths) => (
+    <div style={{ display: "flex" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: gapSize, marginRight: 8, marginTop: showMonths ? 18 : 0 }}>
+        {rowLabels.map((l, i) => (
+          <div key={i} style={{ height: cellSize, fontSize: 10, color: T.mut2, lineHeight: `${cellSize}px` }}>{l}</div>
+        ))}
+      </div>
+      <div>
+        {showMonths && (
+          <div style={{ display: "flex", position: "relative", height: 14, marginBottom: 4 }}>
+            {monthLabels.map((m) => (
+              <div key={m.wi} style={{ position: "absolute", left: m.wi * (cellSize + gapSize), fontSize: 10.5, color: T.mut2, fontWeight: 600 }}>{m.label}</div>
             ))}
           </div>
-          <div>
-            <div style={{ display: "flex", position: "relative", height: 14, marginBottom: 4 }}>
-              {monthLabels.map((m) => (
-                <div key={m.wi} style={{ position: "absolute", left: m.wi * (cell + gap), fontSize: 10.5, color: T.mut2, fontWeight: 600 }}>{m.label}</div>
-              ))}
+        )}
+        <div style={{ display: "flex", gap: gapSize }}>
+          {weekList.map((week, wi) => (
+            <div key={wi} style={{ display: "flex", flexDirection: "column", gap: gapSize }}>
+              {week.map((d, di) => {
+                if (!d) return <div key={di} style={{ width: cellSize, height: cellSize }} />;
+                const isToday = d === todayStr;
+                const spend = spendByDay[d] || 0;
+                return (
+                  <div key={di} title={`${d}: ${money(spend, currency)}`}
+                    style={{
+                      width: cellSize, height: cellSize, borderRadius: 3, boxSizing: "border-box",
+                      background: isToday ? T.mint : bucketColor[bucket(spend)],
+                      border: isToday ? `2px solid ${T.dark}` : `1px solid ${T.line}`,
+                    }} />
+                );
+              })}
             </div>
-            <div style={{ display: "flex", gap }}>
-              {weeks.map((week, wi) => (
-                <div key={wi} style={{ display: "flex", flexDirection: "column", gap }}>
-                  {week.map((d, di) => {
-                    if (!d) return <div key={di} style={{ width: cell, height: cell }} />;
-                    const isToday = d === todayStr;
-                    const spend = spendByDay[d] || 0;
-                    return (
-                      <div key={di} title={`${d}: ${money(spend, currency)}`}
-                        style={{
-                          width: cell, height: cell, borderRadius: 3, boxSizing: "border-box",
-                          background: isToday ? T.mint : bucketColor[bucket(spend)],
-                          border: isToday ? `2px solid ${T.dark}` : `1px solid ${T.line}`,
-                        }} />
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: 12, fontSize: 11, color: T.mut2, flexWrap: "wrap" }}>
-          <span>No spend</span>
-          {bucketColor.slice(0, 4).map((c, i) => (
-            <i key={i} style={{ width: 12, height: 12, borderRadius: 3, background: c, border: `1px solid ${T.line}`, display: "inline-block", boxSizing: "border-box" }} />
           ))}
-          <i style={{ width: 12, height: 12, borderRadius: 3, background: T.dark, display: "inline-block" }} />
-          <span>High</span>
-          <i style={{ width: 12, height: 12, borderRadius: 3, background: T.mint, border: `2px solid ${T.dark}`, display: "inline-block", boxSizing: "border-box" }} />
-          <span>Today</span>
         </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <Card title="Burn Rate Heatmap" sub="Daily spend intensity">
+      <div className="desktopOnly" style={{ overflowX: "auto", paddingBottom: 6 }}>
+        {renderGrid(weeks, cell, gap, true)}
+      </div>
+      <div className="mobileOnly" style={{ overflowX: "auto" }}>
+        <div style={{ fontSize: 12, color: T.mut2, marginBottom: 8 }}>Last {MOBILE_WEEKS} weeks</div>
+        {renderGrid(mobileWeeks, mCell, mGap, false)}
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: 12, fontSize: 11, color: T.mut2, flexWrap: "wrap" }}>
+        <span>No spend</span>
+        {bucketColor.slice(0, 4).map((c, i) => (
+          <i key={i} style={{ width: 12, height: 12, borderRadius: 3, background: c, border: `1px solid ${T.line}`, display: "inline-block", boxSizing: "border-box" }} />
+        ))}
+        <i style={{ width: 12, height: 12, borderRadius: 3, background: T.dark, display: "inline-block" }} />
+        <span>High</span>
+        <i style={{ width: 12, height: 12, borderRadius: 3, background: T.mint, border: `2px solid ${T.dark}`, display: "inline-block", boxSizing: "border-box" }} />
+        <span>Today</span>
       </div>
     </Card>
   );
@@ -2035,7 +2343,7 @@ function BurnRateHeatmap({ txns, currency }) {
 
 function StatCard({ label, value, valueColor, change, iconBg, iconColor, icon: Icon = IconCoin }) {
   return (
-    <div style={S.statCard}>
+    <div className="statCard" style={S.statCard}>
       <div style={S.statTop}>
         <span style={{ ...S.statIcon, background: iconBg, color: iconColor }}><Icon /></span>
         {change != null && (
@@ -2053,7 +2361,24 @@ function StatCard({ label, value, valueColor, change, iconBg, iconColor, icon: I
 function RecentTxnsTable({ txns, catColor, currency }) {
   if (txns.length === 0) return <Empty msg="No transactions in this range." />;
   return (
-    <div style={{ overflowX: "auto" }}>
+    <>
+      {/* Mobile: plain stacked rows — a table just becomes a tiny horizontally-scrolling strip
+          on a narrow screen, so it's swapped for the same row layout used on Transactions. */}
+      <div className="mobileOnly">
+        {txns.map((t) => (
+          <div key={t.id} className="txnRow" style={S.txnRow}>
+            <span style={{ ...S.catDot, background: catColor(t.head) }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={S.txnNote}>{t.note || t.cat}</div>
+              <div style={S.txnMeta}>{t.head} · {dateLabel(t.date)}</div>
+            </div>
+            <div style={{ ...S.txnAmt, color: t.amount >= 0 ? T.darkSoft : T.rose }}>
+              {t.amount >= 0 ? "+" : "−"}{money(Math.abs(t.amount), currency)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="desktopOnly" style={{ overflowX: "auto" }}>
       <table style={S.table}>
         <thead>
           <tr>
@@ -2090,40 +2415,83 @@ function RecentTxnsTable({ txns, catColor, currency }) {
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }
 
 /* ───────────────────────  WALLETS  ─────────────────────── */
-function Wallets({ txns, wallets, scope, currency }) {
+function Wallets({ txns, wallets, scope, currency, onAddWallet }) {
+  const withBalance = wallets.map((w) => {
+    const walletTxns = txns.filter((t) => t.walletId === w.id);
+    return {
+      ...w,
+      balance: w.startingBalance + walletTxns.reduce((s, t) => s + t.amount, 0),
+      scopedCount: walletTxns.filter((t) => inScope(t.date, scope)).length,
+    };
+  });
+  const totalBalance = withBalance.reduce((s, w) => s + w.balance, 0);
+
+  const openWalletBtn = (
+    <button onClick={onAddWallet} style={{
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px", borderRadius: 18,
+      border: `1.5px dashed ${T.line}`, background: "none", color: T.darkSoft, fontWeight: 700, fontSize: 14, minHeight: 44,
+    }}>
+      <IconPlus /> Open new wallet
+    </button>
+  );
+
   return (
     <main style={S.main}>
+      <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 4 }}>My accounts</div>
       <div style={{ fontSize: 12, color: T.mut2, marginBottom: 14 }}>
         Balance is the wallet's running total across all time — it isn't affected by the date range up top.
       </div>
-      <div style={S.statRow}>
-        {wallets.map((w) => {
-          const walletTxns = txns.filter((t) => t.walletId === w.id);
-          const balance = w.startingBalance + walletTxns.reduce((s, t) => s + t.amount, 0);
-          const scopedCount = walletTxns.filter((t) => inScope(t.date, scope)).length;
-          return (
-            <div key={w.id} style={S.statCard}>
-              <div style={S.statTop}>
-                <span style={{ ...S.statIcon, background: w.color + "22", color: w.color }}><IconWallet /></span>
-                <span style={{ fontSize: 11.5, color: T.mut2 }}>{scopedCount} txns in range</span>
-              </div>
-              <div style={{ ...S.statValue, color: balance >= 0 ? T.text : T.rose }}>{money(balance, currency)}</div>
-              <div style={S.statLabel}>{w.name}</div>
-            </div>
-          );
-        })}
+
+      <div className="mobileOnly" style={{
+        background: `linear-gradient(150deg, ${T.dark}, ${T.deepGreen})`, borderRadius: 20, padding: 22, color: "#EAF7EE",
+        marginBottom: 20, boxShadow: "0 16px 32px rgba(15,40,28,0.22)",
+      }}>
+        <div style={{ fontSize: 11, letterSpacing: 2, color: "#9FCBAE", fontWeight: 600, marginBottom: 6 }}>TOTAL BALANCE</div>
+        <div className="amountLg" style={{ fontSize: 32, color: totalBalance >= 0 ? "#fff" : "#FFB3C0" }}>{money(totalBalance, currency)}</div>
       </div>
+
+      <div className="mobileOnly" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+        {withBalance.map((w) => (
+          <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 14, background: T.surface, border: `1px solid ${T.line}`, borderRadius: 18, padding: 16 }}>
+            <span style={{ width: 44, height: 44, borderRadius: 14, background: w.color + "33", color: T.text, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <IconWallet />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, color: T.text }}>{w.name}</div>
+              <div style={{ fontSize: 12, color: T.mut2 }}>{w.scopedCount} txns in range</div>
+            </div>
+            <div className="amountLg" style={{ fontSize: 16, color: w.balance >= 0 ? T.text : T.rose, flexShrink: 0 }}>{money(w.balance, currency)}</div>
+          </div>
+        ))}
+        {openWalletBtn}
+      </div>
+
+      <div className="desktopOnly" style={S.statRow}>
+        {withBalance.map((w) => (
+          <div key={w.id} style={S.statCard}>
+            <div style={S.statTop}>
+              <span style={{ ...S.statIcon, background: w.color + "33", color: T.text }}><IconWallet /></span>
+              <span style={{ fontSize: 11.5, color: T.mut2 }}>{w.scopedCount} txns in range</span>
+            </div>
+            <div style={{ ...S.statValue, color: w.balance >= 0 ? T.text : T.rose }}>{money(w.balance, currency)}</div>
+            <div style={S.statLabel}>{w.name}</div>
+          </div>
+        ))}
+      </div>
+      <div className="desktopOnly">{openWalletBtn}</div>
     </main>
   );
 }
 
 /* ───────────────────────  BUDGETS  ─────────────────────── */
-function Budgets({ txns, budgets, catColor, currency }) {
+function Budgets({ txns, budgets, catColor, currency, onEditBudget, onDeleteBudget }) {
+  const [confirmDelete, setConfirmDelete] = useState(null);
   if (budgets.length === 0) {
     return (
       <main style={S.main}>
@@ -2132,32 +2500,72 @@ function Budgets({ txns, budgets, catColor, currency }) {
     );
   }
   const [monthStart, monthEnd] = currentMonthRange();
+  const withSpend = budgets.map((b) => ({
+    ...b,
+    spent: -txns.filter((t) => t.head === b.head && t.amount < 0 && t.date >= monthStart && t.date <= monthEnd).reduce((s, t) => s + t.amount, 0),
+  }));
+  const totalLimit = withSpend.reduce((s, b) => s + b.limit, 0);
+  const totalSpent = withSpend.reduce((s, b) => s + b.spent, 0);
+  const totalPct = totalLimit > 0 ? Math.min(100, (totalSpent / totalLimit) * 100) : 0;
+  const totalOver = totalSpent > totalLimit;
+
   return (
     <main style={S.main}>
+      <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 4 }}>Budgets</div>
       <div style={{ fontSize: 12, color: T.mut2, marginBottom: 14 }}>
         Budgets always track {dateLabel(monthStart)} → {dateLabel(monthEnd)} — the current calendar month, regardless of the date range up top.
       </div>
+
+      <div className="mobileOnly" style={{
+        background: `linear-gradient(150deg, ${T.dark}, ${T.deepGreen})`, borderRadius: 20, padding: 22, color: "#EAF7EE",
+        marginBottom: 20, boxShadow: "0 16px 32px rgba(15,40,28,0.22)",
+      }}>
+        <div style={{ fontSize: 11, letterSpacing: 2, color: "#9FCBAE", fontWeight: 600, marginBottom: 6 }}>MONTHLY BUDGET</div>
+        <div className="amountLg" style={{ fontSize: 30, color: totalOver ? "#FFB3C0" : "#fff" }}>{money(totalSpent, currency)}</div>
+        <div style={{ fontSize: 13, color: "#CFE9D6", marginBottom: 10 }}>of {money(totalLimit, currency)} budgeted</div>
+        <div style={{ height: 8, borderRadius: 5, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${totalPct}%`, background: totalOver ? "#FFB3C0" : T.mint, borderRadius: 5, transition: "width .4s" }} />
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px,1fr))", gap: 20 }}>
-        {budgets.map((b) => {
-          const spent = -txns.filter((t) => t.head === b.head && t.amount < 0 && t.date >= monthStart && t.date <= monthEnd)
-            .reduce((s, t) => s + t.amount, 0);
+        {withSpend.map((b) => {
+          const { spent } = b;
           const pct = b.limit > 0 ? Math.min(100, (spent / b.limit) * 100) : 0;
           const over = spent > b.limit;
           const barColor = pct >= 100 ? T.rose : pct >= 80 ? T.gold : T.darkSoft;
           return (
-            <Card key={b.id} title={b.head} sub={`Limit ${money(b.limit, currency)}`}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <span style={{ ...S.catDot, background: catColor(b.head) }} />
-                <div style={{ flex: 1, height: 10, borderRadius: 6, background: T.surface2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 6, transition: "width .4s" }} />
+            <Card key={b.id} title={b.head} sub={`Limit ${money(b.limit, currency)}`}
+              filter={confirmDelete !== b.id && (
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button aria-label={`Edit budget for ${b.head}`} onClick={() => onEditBudget(b)} style={S.cardIconBtn}>✎</button>
+                  <button aria-label={`Delete budget for ${b.head}`} onClick={() => setConfirmDelete(b.id)} style={S.cardIconBtn}><IconX /></button>
                 </div>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <span style={{ color: T.mut }}>Spent {money(spent, currency)}</span>
-                <span style={{ color: over ? T.rose : T.darkSoft, fontWeight: 700 }}>
-                  {over ? `${money(spent - b.limit, currency)} over` : `${money(b.limit - spent, currency)} left`}
-                </span>
-              </div>
+              )}>
+              {confirmDelete === b.id ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>Delete this budget?</span>
+                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                    <button onClick={() => setConfirmDelete(null)} style={S.confirmCancelBtn}>Cancel</button>
+                    <button onClick={() => { onDeleteBudget(b.id); setConfirmDelete(null); }} style={S.confirmDeleteBtn}>Delete</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <span style={{ ...S.catDot, background: catColor(b.head) }} />
+                    <div style={{ flex: 1, height: 10, borderRadius: 6, background: T.surface2, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 6, transition: "width .4s" }} />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span style={{ color: T.mut }}>Spent {money(spent, currency)}</span>
+                    <span style={{ color: over ? T.rose : T.darkSoft, fontWeight: 700 }}>
+                      {over ? `${money(spent - b.limit, currency)} over` : `${money(b.limit - spent, currency)} left`}
+                    </span>
+                  </div>
+                </>
+              )}
             </Card>
           );
         })}
@@ -2167,34 +2575,85 @@ function Budgets({ txns, budgets, catColor, currency }) {
 }
 
 /* ───────────────────────  SAVING SPACES  ─────────────────────── */
-function SavingSpaces({ txns, savings, scope, currency }) {
-  if (savings.length === 0) {
-    return (
-      <main style={S.main}>
-        <Card title="Saving spaces"><Empty msg="No saving spaces yet — add one from Settings." /></Card>
-      </main>
-    );
-  }
+function SavingSpaces({ txns, savings, currency, onAddGoal, onEditSaving, onDeleteSaving }) {
+  // A goal is a running total toward a target — it isn't a "this period" number, so it always
+  // reflects every contribution ever made, regardless of the dashboard's date filter.
+  const withProgress = savings.map((s) => {
+    const current = txns.filter((t) => t.savingSpaceId === s.id).reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const pct = s.target > 0 ? Math.min(100, (current / s.target) * 100) : 0;
+    return { ...s, current, pct };
+  });
+  const totalSaved = withProgress.reduce((s, p) => s + p.current, 0);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleteErr, setDeleteErr] = useState(null);
+
+  const handleDelete = (id) => {
+    const err = onDeleteSaving(id);
+    setConfirmDelete(null);
+    setDeleteErr(err ? { id, msg: err } : null);
+  };
+
   return (
     <main style={S.main}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px,1fr))", gap: 20 }}>
-        {savings.map((s) => {
-          const current = txns.filter((t) => t.savingSpaceId === s.id && inScope(t.date, scope))
-            .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-          const pct = s.target > 0 ? Math.min(100, (current / s.target) * 100) : 0;
-          return (
-            <Card key={s.id} title={s.name} sub={`Target ${money(s.target, currency)}`}>
-              <div style={{ height: 10, borderRadius: 6, background: T.surface2, overflow: "hidden", marginBottom: 10 }}>
-                <div style={{ height: "100%", width: `${pct}%`, background: s.color, borderRadius: 6, transition: "width .4s" }} />
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <span style={{ color: T.mut }}>Saved {money(current, currency)}</span>
-                <span style={{ color: T.darkSoft, fontWeight: 700 }}>{pct.toFixed(0)}% of goal</span>
-              </div>
-            </Card>
-          );
-        })}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+        <div className="mobileOnly pageTitleLg" style={{ color: T.text }}>Save</div>
+        <button onClick={onAddGoal} aria-label="Add saving goal" className="mobileOnly"
+          style={{ width: 44, height: 44, borderRadius: "50%", border: `1.5px solid ${T.line}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", color: T.text }}>
+          <IconPlus />
+        </button>
       </div>
+      <div className="mobileOnly" style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 13, color: T.mut, marginBottom: 2 }}>Your total savings</div>
+        <div className="amountLg" style={{ fontSize: "clamp(28px, 8vw, 36px)", color: T.text }}>{money(totalSaved, currency)}</div>
+      </div>
+
+      {withProgress.length === 0 ? (
+        <Card title="Saving spaces"><Empty msg="No saving spaces yet — add one from Settings." /></Card>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px,1fr))", gap: 20 }}>
+          {withProgress.map((s) => (
+            <div key={s.id} style={{
+              background: `linear-gradient(160deg, ${T.mint}, ${T.dark})`, borderRadius: 24, padding: 24,
+              color: "#fff", minHeight: 200, display: "flex", flexDirection: "column", justifyContent: "space-between",
+              boxShadow: "0 16px 32px rgba(15,20,40,0.22)",
+            }}>
+              {confirmDelete === s.id ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", justifyContent: "center" }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>Delete "{s.name}"?</span>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setConfirmDelete(null)} style={{ ...S.confirmCancelBtn, background: "rgba(255,255,255,0.2)", color: "#fff" }}>Cancel</button>
+                    <button onClick={() => handleDelete(s.id)} style={S.confirmDeleteBtn}>Delete</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700 }}>{s.name}</div>
+                      {s.targetDate && <div style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginTop: 2 }}>by {dateLabel(s.targetDate)}</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                      <button aria-label={`Edit ${s.name}`} onClick={() => onEditSaving(s)} style={{ ...S.cardIconBtn, color: "#fff" }}>✎</button>
+                      <button aria-label={`Delete ${s.name}`} onClick={() => { setDeleteErr(null); setConfirmDelete(s.id); }} style={{ ...S.cardIconBtn, color: "#fff" }}><IconX /></button>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="amountLg" style={{ fontSize: 30, marginBottom: 10 }}>{money(s.current, currency)}</div>
+                    <div style={{ height: 8, borderRadius: 5, background: "rgba(255,255,255,0.25)", overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${s.pct}%`, background: "#fff", borderRadius: 5, transition: "width .4s" }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "rgba(255,255,255,0.8)", marginTop: 8 }}>
+                      <span>of {money(s.target, currency)}</span>
+                      <span style={{ fontWeight: 700, color: "#fff" }}>{s.pct.toFixed(0)}%</span>
+                    </div>
+                    {deleteErr?.id === s.id && <div style={{ color: "#FFD9DF", fontSize: 11.5, marginTop: 8 }}>{deleteErr.msg}</div>}
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </main>
   );
 }
@@ -2279,10 +2738,13 @@ function ComingSoon({ title, blurb }) {
 }
 
 /* ───────────────────────  TRANSACTIONS  ─────────────────────── */
-function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch, currency, presetFilter, onConsumePresetFilter }) {
+/* Delete is an explicit tap-to-confirm (X → "Delete this transaction? Cancel/Delete") rather than a
+   swipe gesture — swipe-to-reveal was hard to discover and its red reveal color showed at rest. */
+function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, setSearch, currency, presetFilter, onConsumePresetFilter }) {
   const [fHead, setFHead] = useState(presetFilter?.head || "all");
   const [fSub, setFSub] = useState(presetFilter?.sub || "all");
   const [fType, setFType] = useState("all");
+  const [confirmDeleteTxn, setConfirmDeleteTxn] = useState(null);
 
   // Consume the incoming preset exactly once per mount so a later plain visit to this tab (without
   // clicking a subcategory again) isn't stuck re-applying a stale filter.
@@ -2313,29 +2775,22 @@ function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch, 
 
   return (
     <main style={S.main}>
+      <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 4 }}>Transactions</div>
       <div style={S.filterBar}>
         {search && (
           <div style={S.activeSearchPill}>
             Searching “{search}” <button onClick={() => setSearch("")} aria-label="Clear search" style={S.activeSearchClear}>✕</button>
           </div>
         )}
-        <select className="field" value={fHead} onChange={(e) => { setFHead(e.target.value); setFSub("all"); }} style={S.input}>
-          <option value="all">All categories</option>
-          {cats.heads.map((h) => <option key={h.name}>{h.name}</option>)}
-        </select>
-        {fHead !== "all" && subOptions.length > 0 && (
-          <select className="field" value={fSub} onChange={(e) => setFSub(e.target.value)} style={S.input}>
-            <option value="all">All subcategories</option>
-            {subOptions.map((s) => <option key={s}>{s}</option>)}
-          </select>
-        )}
-        <div style={S.segment}>
-          {["all", "expense", "income"].map((t) => (
-            <button key={t} onClick={() => setFType(t)} style={{ ...S.segBtn, ...(fType === t ? S.segBtnActive : {}) }}>
-              {t[0].toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
+        <FilterPicker value={fHead} placeholderLabel="All categories"
+          options={[{ value: "all", label: "All categories" }, ...cats.heads.map((h) => ({ value: h.name, label: h.name }))]}
+          onChange={(v) => { setFHead(v); setFSub("all"); }} />
+        <FilterPicker value={fSub} placeholderLabel="All subcategories" disabled={fHead === "all" || subOptions.length === 0}
+          options={[{ value: "all", label: "All subcategories" }, ...subOptions.map((s) => ({ value: s, label: s }))]}
+          onChange={setFSub} />
+        <FilterPicker value={fType} placeholderLabel="All types"
+          options={[{ value: "all", label: "All types" }, { value: "expense", label: "Expense" }, { value: "income", label: "Income" }]}
+          onChange={setFType} />
       </div>
 
       <div style={S.resultLine}>
@@ -2354,18 +2809,31 @@ function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch, 
         <div key={date} style={{ marginBottom: 18 }}>
           <div style={S.dateHead}>{dateLabel(date)}</div>
           {byDate[date].map((t) => (
-            <div key={t.id} className="txnRow" style={{ ...S.txnRow, cursor: "pointer" }}
-              onClick={() => onEdit(t)} title="Edit this transaction">
-              <span style={{ ...S.catDot, background: catColor(t.head) }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={S.txnNote}>{t.note || t.cat}</div>
-                <div style={S.txnMeta}>{t.head} · {t.cat}</div>
+            confirmDeleteTxn === t.id ? (
+              <div key={t.id} className="txnRow" style={{ ...S.txnRow, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>Delete this transaction?</span>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button onClick={() => setConfirmDeleteTxn(null)} style={S.confirmCancelBtn}>Cancel</button>
+                  <button onClick={() => { onDelete(t.id); setConfirmDeleteTxn(null); }} style={S.confirmDeleteBtn}>Delete</button>
+                </div>
               </div>
-              <div style={{ ...S.txnAmt, color: t.amount >= 0 ? T.darkSoft : T.rose }}>
-                {t.amount >= 0 ? "+" : "−"}{money(Math.abs(t.amount), currency)}
+            ) : (
+              <div key={t.id} className="txnRow" style={{ ...S.txnRow, cursor: "pointer" }}
+                onClick={() => onEdit(t)} title="Edit this transaction">
+                <span style={{ ...S.catDot, background: catColor(t.head) }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={S.txnNote}>{t.note || t.cat}</div>
+                  <div style={S.txnMeta}>{t.head} · {t.cat}</div>
+                </div>
+                <div style={{ ...S.txnAmt, color: t.amount >= 0 ? T.darkSoft : T.rose }}>
+                  {t.amount >= 0 ? "+" : "−"}{money(Math.abs(t.amount), currency)}
+                </div>
+                <span className="editHint" style={S.editHint}>✎</span>
+                <button aria-label="Delete transaction" className="txnDeleteBtn" onClick={(e) => { e.stopPropagation(); setConfirmDeleteTxn(t.id); }} style={S.txnDeleteBtn}>
+                  <IconX />
+                </button>
               </div>
-              <span className="editHint" style={S.editHint}>✎</span>
-            </div>
+            )
           ))}
         </div>
       ))}
@@ -2381,7 +2849,7 @@ function Transactions({ txns, cats, catColor, onEdit, scope, search, setSearch, 
 }
 
 /* ─────────────  TXN FORM (add + edit share this)  ───────────── */
-function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings, currency }) {
+function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings, currency, embedded }) {
   const isEdit = !!initial;
   const today = new Date().toISOString().slice(0, 10);
   const expHeads = cats.heads.filter((h) => h.kind === "expense");
@@ -2423,9 +2891,13 @@ function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings
   };
 
   return (
-    <main style={{ ...S.main, maxWidth: 560, ...(isEdit ? { margin: 0, padding: 0, maxWidth: "none" } : {}) }}>
-      <div style={{ ...S.formCard, ...(isEdit ? { border: "none", padding: 0, background: "transparent", boxShadow: "none" } : {}) }}>
-        {isEdit && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, marginBottom: 10 }}>Edit transaction</div>}
+    <main style={{ ...S.main, maxWidth: 560, ...(embedded ? { margin: 0, padding: 0, maxWidth: "none" } : {}) }}>
+      <div style={{ ...S.formCard, ...(embedded ? { border: "none", padding: 0, background: "transparent", boxShadow: "none" } : {}) }}>
+        {embedded && (
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, marginBottom: 10 }}>
+            {isEdit ? "Edit transaction" : type === "income" ? "Add income" : "Add expense"}
+          </div>
+        )}
         <div style={S.segment}>
           {["expense", "income"].map((t) => (
             <button key={t} onClick={() => pickType(t)}
@@ -2441,7 +2913,7 @@ function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings
         <label style={S.label}>Amount ({currency})</label>
         <input className="field" type="number" inputMode="decimal" min="0" placeholder="0"
           value={amount} onChange={(e) => { setAmount(e.target.value); setErr(""); }}
-          style={{ ...S.input, width: "100%", fontSize: 26, fontFamily: FONT_DISPLAY, fontWeight: 700, padding: "12px 14px" }} autoFocus={!isEdit} />
+          style={{ ...S.input, width: "100%", fontSize: 26, fontFamily: FONT_DISPLAY, fontWeight: 700, padding: "12px 14px" }} />
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 140px", minWidth: 0 }}>
@@ -2450,19 +2922,15 @@ function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings
               style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
           </div>
           <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-            <label style={S.label}>Head category</label>
-            <select className="field" value={head} onChange={(e) => pickHead(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
-              {headsForType.map((h) => <option key={h.name}>{h.name}</option>)}
-            </select>
+            <PickerField label="Head category" value={head} onChange={pickHead}
+              options={headsForType.map((h) => ({ value: h.name, label: h.name }))} />
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-            <label style={S.label}>Wallet</label>
-            <select className="field" value={walletId} onChange={(e) => setWalletId(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }}>
-              {wallets.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            <PickerField label="Wallet" value={walletId} onChange={setWalletId}
+              options={wallets.map((w) => ({ value: w.id, label: w.name }))} />
           </div>
           {savings.length > 0 && (
             <div style={{ flex: "1 1 140px", minWidth: 0 }}>
@@ -2482,15 +2950,17 @@ function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings
         </div>
 
         <label style={S.label}>Note</label>
-        <input className="field" placeholder="e.g. KFC with Mirha - Gulberg" value={note}
+        <input className="field" placeholder="e.g. Lunch at a restaurant" value={note}
           onChange={(e) => setNote(e.target.value)} style={{ ...S.input, width: "100%" }}
           onKeyDown={(e) => e.key === "Enter" && submit()} />
 
         {err && <div style={{ color: T.rose, fontSize: 12, marginTop: 8 }}>{err}</div>}
 
-        <button className="primaryBtn" onClick={submit} style={S.primaryBtn}>
-          {isEdit ? "Save changes" : "Save transaction"}
-        </button>
+        <div className={embedded ? "stickyFormFooter" : undefined}>
+          <button className="primaryBtn" onClick={submit} style={S.primaryBtn}>
+            {isEdit ? "Save changes" : "Save transaction"}
+          </button>
+        </div>
 
         {isEdit && (
           !confirmDel ? (
@@ -2538,6 +3008,12 @@ function Settings({
   const [confirmDeleteSaving, setConfirmDeleteSaving] = useState(null);
   const [confirmDeleteHead, setConfirmDeleteHead] = useState(null);
   const [confirmDeleteWallet, setConfirmDeleteWallet] = useState(null);
+  const [collapsedCatHeads, setCollapsedCatHeads] = useState(() => new Set());
+  const toggleCatHead = (name) => setCollapsedCatHeads((set) => {
+    const next = new Set(set);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
   const [mergePreview, setMergePreview] = useState(null); // array of {from, to} or null
 
   const scanForMiscategorized = () => {
@@ -2566,6 +3042,7 @@ function Settings({
   const [newBudgetLimit, setNewBudgetLimit] = useState("");
   const [newSavingName, setNewSavingName] = useState("");
   const [newSavingTarget, setNewSavingTarget] = useState("");
+  const [newSavingDate, setNewSavingDate] = useState("");
 
   const usedByHead = (h) => txns.filter((t) => t.head === h).length;
   const usedBySub = (h, s) => txns.filter((t) => t.head === h && t.cat === s).length;
@@ -2672,19 +3149,21 @@ function Settings({
     const target = parseFloat(newSavingTarget);
     if (!name || !target || target <= 0) { note("Enter a name and a target greater than zero."); return; }
     if (savings.length >= MAX_SAVINGS) { note(`Maximum of ${MAX_SAVINGS} saving spaces reached — delete one to add another.`); return; }
-    persistSavings([...savings, { id: uid(), name, target, color: "#A97FC0" }]);
-    setNewSavingName(""); setNewSavingTarget("");
+    persistSavings([...savings, { id: uid(), name, target, targetDate: newSavingDate, color: SWATCHES[savings.length % SWATCHES.length] }]);
+    setNewSavingName(""); setNewSavingTarget(""); setNewSavingDate("");
   };
   const deleteSaving = (id) => {
     if (usedBySaving(id) > 0) { note(`This saving space is used by ${usedBySaving(id)} transaction(s) — reassign them first.`); return; }
     persistSavings(savings.filter((s) => s.id !== id));
   };
   const setSavingTarget = (id, val) => persistSavings(savings.map((s) => (s.id === id ? { ...s, target: parseFloat(val) || 0 } : s)));
+  const setSavingTargetDate = (id, val) => persistSavings(savings.map((s) => (s.id === id ? { ...s, targetDate: val } : s)));
 
   const saveDailyLimit = () => persistDailyLimit(parseFloat(dailyLimitInput) || 0);
 
   return (
     <main style={{ ...S.main, maxWidth: 900 }}>
+    <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 16 }}>Settings</div>
     <div className="settingsLayout" style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
       <div style={S.settingsTabBar}>
         {SETTINGS_TABS.map((t) => (
@@ -2812,33 +3291,44 @@ function Settings({
                     <button onClick={() => setConfirmDeleteHead(null)} aria-label="Cancel delete" style={S.tinyBtn}>✕</button>
                   </span>
                 ) : (
-                  <button onClick={() => setConfirmDeleteHead(h.name)} style={{ ...S.tinyBtn, marginLeft: "auto" }}
-                    aria-label={`Delete category ${h.name}`}
-                    title={usedByHead(h.name) ? "In use — reassign transactions first" : "Delete category"}>✕</button>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+                    <button onClick={() => toggleCatHead(h.name)} aria-label={collapsedCatHeads.has(h.name) ? `Expand ${h.name}` : `Collapse ${h.name}`}
+                      aria-expanded={!collapsedCatHeads.has(h.name)}
+                      className={`statChevron${collapsedCatHeads.has(h.name) ? "" : " open"}`} style={{ position: "static" }}>
+                      <IconChevronDown />
+                    </button>
+                    <button onClick={() => setConfirmDeleteHead(h.name)} style={S.tinyBtn}
+                      aria-label={`Delete category ${h.name}`}
+                      title={usedByHead(h.name) ? "In use — reassign transactions first" : "Delete category"}>✕</button>
+                  </span>
                 )}
               </div>
-              <div style={{ ...S.chipWrap, marginTop: 10 }}>
-                {(cats.subcats[h.name] || []).map((s) =>
-                  renaming?.kind === "sub" && renaming.head === h.name && renaming.sub === s ? (
-                    <input key={s} className="field" autoFocus value={renaming.value}
-                      onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
-                      onKeyDown={(e) => e.key === "Enter" && commitRename()}
-                      onBlur={commitRename} style={{ ...S.input, ...S.inputSm, width: 130 }} />
-                  ) : (
-                    <span key={s} className="chip" style={{ ...S.chip, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <button type="button" style={{ cursor: "pointer", background: "none", border: "none", padding: 0, font: "inherit", color: "inherit" }} title="Click to rename"
-                        aria-label={`Rename subcategory ${s}`}
-                        onClick={() => setRenaming({ kind: "sub", head: h.name, sub: s, value: s })}>{s}</button>
-                      <button type="button" onClick={() => deleteSub(h.name, s)} style={{ cursor: "pointer", color: T.mut2, background: "none", border: "none", padding: 0 }}
-                        aria-label={`Delete subcategory ${s}`}
-                        title={usedBySub(h.name, s) ? "In use" : "Delete"}>✕</button>
-                    </span>
-                  )
-                )}
-                <input className="field" placeholder="+ Add subcategory" value={newSub[h.name] || ""}
-                  onChange={(e) => setNewSub({ ...newSub, [h.name]: e.target.value })}
-                  onKeyDown={(e) => e.key === "Enter" && addSub(h.name)}
-                  style={{ ...S.input, ...S.inputSm, width: 150 }} />
+              <div className={`statSubWrap${collapsedCatHeads.has(h.name) ? "" : " open"}`}>
+                <div className="statSubInner">
+                  <div style={{ ...S.chipWrap, marginTop: 10 }}>
+                    {(cats.subcats[h.name] || []).map((s) =>
+                      renaming?.kind === "sub" && renaming.head === h.name && renaming.sub === s ? (
+                        <input key={s} className="field" autoFocus value={renaming.value}
+                          onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
+                          onKeyDown={(e) => e.key === "Enter" && commitRename()}
+                          onBlur={commitRename} style={{ ...S.input, ...S.inputSm, width: 130 }} />
+                      ) : (
+                        <span key={s} className="chip" style={{ ...S.chip, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <button type="button" style={{ cursor: "pointer", background: "none", border: "none", padding: 0, font: "inherit", color: "inherit" }} title="Click to rename"
+                            aria-label={`Rename subcategory ${s}`}
+                            onClick={() => setRenaming({ kind: "sub", head: h.name, sub: s, value: s })}>{s}</button>
+                          <button type="button" onClick={() => deleteSub(h.name, s)} style={{ cursor: "pointer", color: T.mut2, background: "none", border: "none", padding: 0 }}
+                            aria-label={`Delete subcategory ${s}`}
+                            title={usedBySub(h.name, s) ? "In use" : "Delete"}>✕</button>
+                        </span>
+                      )
+                    )}
+                    <input className="field" placeholder="+ Add subcategory" value={newSub[h.name] || ""}
+                      onChange={(e) => setNewSub({ ...newSub, [h.name]: e.target.value })}
+                      onKeyDown={(e) => e.key === "Enter" && addSub(h.name)}
+                      style={{ ...S.input, ...S.inputSm, width: 150 }} />
+                  </div>
+                </div>
               </div>
             </div>
           ))}
@@ -2993,6 +3483,9 @@ function Settings({
             <span style={{ fontSize: 12, color: T.mut2 }}>target</span>
             <input className="field" type="number" value={s.target}
               onChange={(e) => setSavingTarget(s.id, e.target.value)} style={{ ...S.input, ...S.inputSm, width: 120 }} />
+            <span style={{ fontSize: 12, color: T.mut2 }}>by</span>
+            <input className="field" type="date" value={s.targetDate || ""}
+              onChange={(e) => setSavingTargetDate(s.id, e.target.value)} style={{ ...S.input, ...S.inputSm, width: 150 }} />
             <span style={{ fontSize: 11, color: T.mut2 }}>{usedBySaving(s.id)} txns</span>
             {confirmDeleteSaving === s.id ? (
               <span style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontSize: 11.5, color: T.mut }}>
@@ -3015,6 +3508,8 @@ function Settings({
             onChange={(e) => setNewSavingName(e.target.value)} style={{ ...S.input, flex: "1 1 180px" }} />
           <input className="field" type="number" placeholder={`Target (${profile.currency})`} value={newSavingTarget}
             onChange={(e) => setNewSavingTarget(e.target.value)} style={{ ...S.input, width: 140 }} />
+          <input className="field" type="date" value={newSavingDate}
+            onChange={(e) => setNewSavingDate(e.target.value)} style={{ ...S.input, width: 150 }} />
           <button className="primaryBtn" onClick={addSaving} style={{ ...S.primaryBtn, marginTop: 0, padding: "10px 22px" }}>Add</button>
         </div>
       ) : (
@@ -3056,6 +3551,13 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
   const save = () => {
     persistProfile({ ...form, firstName: form.firstName.trim() || "You", lastName: form.lastName.trim(), email: form.email.trim() });
     setSaved(true); setTimeout(() => setSaved(false), 1800);
+  };
+
+  // Theme applies immediately on tap rather than waiting for "Update my settings" — flipping
+  // light/dark is an instant, low-stakes preference, not a form field you'd want to "cancel".
+  const setTheme = (value) => {
+    set({ theme: value });
+    persistProfile({ ...form, theme: value });
   };
 
   return (
@@ -3117,6 +3619,18 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
       <label style={S.label}>Email address</label>
       <input className="field" type="email" placeholder="you@example.com" value={form.email}
         onChange={(e) => set({ email: e.target.value })} style={{ ...S.input, width: "100%" }} />
+
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, marginTop: 22, marginBottom: 4 }}>Appearance</div>
+      <label style={S.label}>Theme</label>
+      <div style={{ ...S.segment, maxWidth: 320 }}>
+        {THEME_OPTIONS.map((t) => (
+          <button key={t.value} type="button" onClick={() => setTheme(t.value)}
+            style={{ ...S.segBtn, flex: 1, ...((form.theme || "system") === t.value ? S.segBtnActive : {}) }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: T.mut2, marginTop: 4, marginBottom: 4 }}>"System" follows your device's light/dark setting automatically.</div>
 
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, marginTop: 22, marginBottom: 4 }}>Localization settings</div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -3333,9 +3847,15 @@ function ImportDataForm({ cats, wallets, txns, persistCats, persistTxns, onClose
 
 /* ───────────────────────  SMALL PIECES  ─────────────────────── */
 function Modal({ children, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
-    <div style={S.modalBack} onClick={onClose}>
-      <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+    <div className="modalBack" style={S.modalBack} onClick={onClose}>
+      <div className="modalCard" role="dialog" aria-modal="true" style={S.modal} onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHandle mobileOnly" />
         <button onClick={onClose} style={S.modalClose} title="Close" aria-label="Close">✕</button>
         {children}
       </div>
@@ -3513,15 +4033,15 @@ function Chip({ active, onClick, children }) {
 }
 function MiniCard({ label, value, color }) {
   return (
-    <div style={S.heroMini}>
-      <div style={{ fontSize: 10.5, letterSpacing: 1.3, color: "#BFE0C9", textTransform: "uppercase", fontWeight: 600 }}>{label}</div>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, color: color || "#fff", fontVariantNumeric: "tabular-nums", marginTop: 4, fontWeight: 700, letterSpacing: -0.1 }}>{value}</div>
+    <div className="heroMiniCard" style={S.heroMini}>
+      <div className="heroMiniLabel" style={{ fontSize: 10.5, letterSpacing: 1.3, color: "#BFE0C9", textTransform: "uppercase", fontWeight: 600, overflowWrap: "break-word", wordBreak: "break-word", whiteSpace: "nowrap" }}>{label}</div>
+      <div className="heroMiniValue" style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, color: color || "#fff", fontVariantNumeric: "tabular-nums", marginTop: 4, fontWeight: 700, letterSpacing: -0.1 }}>{value}</div>
     </div>
   );
 }
 function Card({ title, sub, filter, children }) {
   return (
-    <section style={S.card}>
+    <section className="card" style={S.card}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "flex-start" }}>
         <div>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, color: T.text }}>{title}</div>
@@ -3535,6 +4055,32 @@ function Card({ title, sub, filter, children }) {
 }
 function Empty({ msg }) {
   return <div style={{ color: T.mut2, fontSize: 12.5, padding: "34px 0", textAlign: "center" }}>{msg}</div>;
+}
+function Skel({ w, h, r = 10, style }) {
+  return <div className="skel" style={{ width: w, height: h, borderRadius: r, ...style }} />;
+}
+/* Shown while the initial Supabase read is in flight, shaped like the real dashboard so the
+   transition into real content doesn't jump around. */
+function SkeletonDashboard() {
+  return (
+    <div className="appShell">
+      <aside className="sidebar" style={S.sidebar}>
+        <Skel w={100} h={30} style={{ margin: "0 8px 24px" }} />
+        {Array.from({ length: 6 }).map((_, i) => <Skel key={i} w="100%" h={38} r={12} style={{ marginBottom: 8 }} />)}
+      </aside>
+      <div style={{ flex: 1, minWidth: 0, padding: "24px 32px" }}>
+        <Skel w={160} h={26} style={{ marginBottom: 24 }} />
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 20 }}>
+          <Skel w="100%" h={200} r={20} style={{ flex: "1.6 1 420px" }} />
+          <Skel w="100%" h={200} r={20} style={{ flex: "1 1 260px" }} />
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
+          {Array.from({ length: 4 }).map((_, i) => <Skel key={i} w="100%" h={100} r={18} style={{ flex: "1 1 200px" }} />)}
+        </div>
+        <Skel w="100%" h={280} r={20} />
+      </div>
+    </div>
+  );
 }
 function Tip({ active, payload, label, currency = "PKR" }) {
   if (!active || !payload?.length) return null;
@@ -3557,7 +4103,46 @@ const FONT_BODY = "'Ubuntu','Segoe UI',sans-serif";
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap');
 * { box-sizing: border-box; }
-body { margin: 0; }
+:root {
+  --bg: #F3F8F4; --sidebar: #EAF6EC; --surface: #FFFFFF; --surface2: #F0F8F2; --line: #E3EEE5;
+  --dark: #132A1E; --darkSoft: #1F4A34; --deepGreen: #1F4A34; --mint: #7FE6A0; --mintSoft: #E1F7E6;
+  --gold: #E0A93F; --goldSoft: #FBEFD9; --rose: #EF5A6F; --roseSoft: #FCE7EA;
+  --text: #16281D; --mut: #5E7568; --mut2: #93A99B;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  /* Surfaces step up clearly from the base (bg -> surface -> surface2) so cards actually lift off
+     the background instead of blending into it, and the brand accents (mint/gold/rose) are pushed
+     brighter/more saturated than their light-mode values so they still read as "the brand" rather
+     than washed-out pastel-on-dark. */
+  --bg: #0A1712; --sidebar: #071009; --surface: #16281F; --surface2: #213A2B; --line: #34543E;
+  --dark: #17392A; --darkSoft: #A8E6BE; --deepGreen: #2A5A40; --mint: #6EF2A6; --mintSoft: #1E4531;
+  --gold: #F0BB4C; --goldSoft: #423114; --rose: #FF8A99; --roseSoft: #442026;
+  --text: #F3FAF6; --mut: #B9D8C5; --mut2: #8AAC96;
+  color-scheme: dark;
+}
+/* Form controls don't inherit the page font by default in every browser (buttons in particular) —
+   without this, anything styled purely through inline JS objects on a <button> (like the Hub grid
+   tiles) silently falls back to the OS system font instead of the brand typeface. */
+button, input, select, textarea { font-family: inherit; }
+/* Browsers paint a system ButtonFace grey behind any <button> that doesn't set its own
+   background — invisible on the old light theme, but a jarring grey box on dark surfaces. */
+button { background: none; color: inherit; }
+html, body, #root { height: 100%; }
+body { margin: 0; overflow-x: hidden; overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; }
+/* Kill the default mobile "tap highlight" rectangle (shows as a flashed blue/gray box on any
+   tappable element) and the focus ring browsers substitute for it on touch. */
+* { -webkit-tap-highlight-color: transparent; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+@media (hover: none) {
+  button:focus, a:focus, input:focus:not(.field), select:focus, [role="button"]:focus { outline: none; }
+}
+body, .appShell { min-height: 100dvh; }
+
+/* ─── Mobile typography scale ─── */
+.pageTitleLg { font-family: ${FONT_DISPLAY}; font-weight: 700; font-size: clamp(28px, 9vw, 40px); line-height: 1.1; letter-spacing: -0.5px; }
+.sectionTitleLg { font-family: ${FONT_DISPLAY}; font-weight: 700; font-size: clamp(20px, 5.5vw, 26px); line-height: 1.15; }
+.amountLg { font-family: ${FONT_DISPLAY}; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
 .field:focus { outline: 2px solid ${T.mint}66; border-color: ${T.darkSoft} !important; }
 .recharts-wrapper *:focus, .recharts-surface *:focus, .recharts-sector:focus, .recharts-pie-sector:focus { outline: none !important; }
 .chip:hover { border-color: ${T.darkSoft}; }
@@ -3565,15 +4150,19 @@ body { margin: 0; }
 .colorSwatchBtn:hover { box-shadow: 0 0 0 1.5px ${T.darkSoft}; }
 .avatarMenuItem:hover { background: ${T.surface2}; }
 .primaryBtn:hover { filter: brightness(1.12); }
+.primaryBtn, .quickBtn, .navItem, .chip, .hubCard { transition: transform .12s ease, background .15s ease, filter .15s ease; }
+.primaryBtn:active, .quickBtn:active, .chip:active { transform: scale(0.96); }
+.navItem:active { transform: scale(0.97); }
 .linkBtn:hover { text-decoration: underline; }
 .navItem:hover { background: ${T.mintSoft}; }
 .quickBtn:hover { background: ${T.surface2}; }
 .tblRow:hover { background: ${T.surface2}; }
-.txnRow { background: ${T.surface}; }
+.txnRow { background: ${T.surface}; transition: background .15s ease, transform .1s ease; }
 .txnRow:hover { background: ${T.surface2}; }
-.txnRow .editHint { opacity: 0; transition: opacity .15s; }
-.txnRow:hover .editHint { opacity: 1; }
-@media (max-width: 640px) { .txnRow .editHint { opacity: 1; } }
+.txnRow:active { transform: scale(0.99); }
+.txnRow .editHint, .txnRow .txnDeleteBtn { opacity: 0; transition: opacity .15s; }
+.txnRow:hover .editHint, .txnRow:hover .txnDeleteBtn { opacity: 1; }
+@media (max-width: 640px) { .txnRow .editHint, .txnRow .txnDeleteBtn { opacity: 1; } }
 
 .statCatHead { cursor: pointer; padding: 8px 10px; margin: 0 -10px; border-radius: 12px; transition: background .18s ease; }
 .statCatHead:hover { background: ${T.surface2}; }
@@ -3590,34 +4179,146 @@ body { margin: 0; }
 .statSubBar { transition: width .5s cubic-bezier(.22,1,.36,1) .05s; }
 @keyframes statSubIn { to { opacity: 1; transform: translateX(0); } }
 
-.appShell { display: flex; min-height: 100vh; }
+.appShell { display: flex; min-height: 100vh; min-height: 100dvh; }
 .sidebar { width: 236px; flex-shrink: 0; }
 .sidebarNav { display: flex; flex-direction: column; gap: 4px; }
 @media (max-width: 900px) {
-  .appShell { flex-direction: column; }
-  .sidebar { width: 100%; position: sticky; top: 0; z-index: 40; border-right: none !important; border-bottom: 1px solid ${T.line}; }
-  .sidebarNav { flex-direction: row; overflow-x: auto; }
-  .navItem .navLabel { display: none; }
-  .navCaption { display: none; }
-  .sidebarFoot { display: none; }
+  /* Lock the app shell to exactly one viewport tall and scroll *inside* .mobileMain instead of
+     letting the whole document scroll. Otherwise a fixed bottom bar gets positioned against the
+     browser's "large" viewport (address bar expanded) and sits below the fold — invisible — until
+     the page scrolls enough for the toolbar to auto-collapse. This is scoped to .appShell (not
+     html/body) so other top-level screens like the login page keep normal, safe document scrolling. */
+  .appShell { flex-direction: column; height: 100dvh; overflow: hidden; }
+  /* Mobile gets a floating bottom nav + FAB instead of the desktop sidebar. (!important needed —
+     the sidebar's inline style sets display:flex, which otherwise beats this media query.) */
+  .sidebar { display: none !important; }
+  .mobileMain { height: 100%; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
-.dashGrid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; }
-@media (max-width: 980px) { .dashGrid { grid-template-columns: 1fr; } }
-.dashGridRev { display: grid; grid-template-columns: 1fr 1.6fr; gap: 20px; }
-@media (max-width: 980px) { .dashGridRev { grid-template-columns: 1fr; } }
+@media (min-width: 901px) {
+  .hubNavBtn { display: none !important; }
+  .mobileOnly { display: none !important; }
+}
+.desktopOnly { display: block; }
+@media (max-width: 900px) { .desktopOnly { display: none !important; } }
+.chipScroll { display: flex; flex-wrap: wrap; gap: 8px; }
+.chipScroll > button { flex-shrink: 0; }
+@media (max-width: 900px) {
+  .rangeTriggerBtn { padding: 7px 10px !important; font-size: 12px !important; }
+  .rangeTriggerLabel { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* ─── Skeleton shimmer (initial load) ─── */
+.skel { background: linear-gradient(90deg, ${T.surface2} 25%, ${T.line} 37%, ${T.surface2} 63%); background-size: 400% 100%; animation: skelShimmer 1.4s ease infinite; }
+@keyframes skelShimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+
+/* Every existing <Modal> (edit transaction, export/import data, etc.) becomes a real bottom sheet on
+   mobile — same rounded-top / drag-handle / slide-up treatment as the FAB hub and More sheet. */
+@media (max-width: 640px) {
+  .modalBack { align-items: flex-end !important; padding: 0 !important; }
+  .modalCard {
+    border-radius: 24px 24px 0 0 !important; max-width: none !important; width: 100% !important;
+    max-height: 86dvh !important; padding: 10px 20px calc(20px + env(safe-area-inset-bottom)) !important;
+    animation: sheetUp .28s cubic-bezier(.2,.8,.3,1);
+  }
+  .modalCard > .sheetHandle { margin-bottom: 10px; }
+  .stickyFormFooter { position: sticky; bottom: -1px; background: ${T.surface}; padding: 10px 0 2px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; }
+
+  /* Compact dashboard cards on phone — desktop padding/gaps feel oversized and wastes scroll depth. */
+  .card { padding: 16px !important; border-radius: 18px !important; margin-bottom: 14px !important; }
+  .statCard { padding: 14px !important; border-radius: 16px !important; }
+  .statRow { gap: 10px !important; grid-template-columns: repeat(2, 1fr) !important; margin-bottom: 14px !important; }
+  .heroSection { padding: 18px !important; border-radius: 18px !important; gap: 10px !important; }
+  .quickActionsSection { padding: 16px !important; border-radius: 18px !important; }
+  .heroMiniRow { gap: 8px !important; }
+  .heroMiniCard { padding: 7px 8px !important; }
+
+  /* Tighter gap between the topbar's filter row and the page content below it on phone —
+     the topbar's own bottom padding plus main's top padding was leaving a large dead gap
+     above "Welcome back". */
+  .appTopbar { padding-bottom: 8px !important; gap: 10px !important; }
+  main { padding-top: 6px !important; }
+  .heroMiniLabel { font-size: 9px !important; letter-spacing: 0.8px !important; }
+  .heroMiniValue { font-size: 13px !important; }
+}
+
+/* ─── Single floating round Hub button (bottom-center) — opens the nav Hub sheet ─── */
+.hubNavBtn {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  z-index: 60; width: 58px; height: 58px; border-radius: 50%; background: ${T.dark}; border: none;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+  box-shadow: 0 10px 26px rgba(19,42,30,0.38); transition: transform .15s ease;
+}
+.hubNavBtn:active { transform: translateX(-50%) scale(0.92); }
+.hubNavIconWrap { position: relative; width: 20px; height: 20px; }
+.hubNavIconLayer {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  opacity: 0; transform: scale(0.5) rotate(-40deg); transition: opacity .18s ease, transform .25s cubic-bezier(.4,0,.2,1);
+}
+.hubNavIconLayer.show { opacity: 1; transform: scale(1) rotate(0deg); }
+.hubCard.active { background: ${T.mintSoft}; }
+
+/* ─── Bottom sheet (mobile modal) ─── */
+.sheetBack { position: fixed; inset: 0; background: rgba(16,30,22,0.55); z-index: 100; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 101; background: ${T.surface};
+  border-radius: 24px 24px 0 0; padding: 10px 20px calc(20px + env(safe-area-inset-bottom));
+  max-height: 86dvh; overflow-y: auto; box-shadow: 0 -12px 40px rgba(15,30,20,0.25);
+  animation: sheetUp .28s cubic-bezier(.2,.8,.3,1);
+}
+.sheetHandle { width: 40px; height: 5px; border-radius: 3px; background: ${T.line}; margin: 4px auto 14px; }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@media (min-width: 641px) {
+  .sheetBack { display: flex; align-items: center; justify-content: center; }
+  .sheet { position: relative; left: auto; right: auto; bottom: auto; border-radius: 22px; max-width: 480px; width: 100%;
+    animation: sheetPop .2s cubic-bezier(.2,.8,.3,1); }
+}
+@keyframes sheetPop { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ─── Mobile FAB hub grid ─── */
+.hubGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 380px) { .hubGrid { grid-template-columns: repeat(2, 1fr); } }
+.hubCard {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: ${T.surface}; border: 1px solid ${T.line}; border-radius: 20px; padding: 20px 8px;
+  min-height: 96px; min-width: 0; color: ${T.text}; font-family: ${FONT_BODY}; font-size: 12.5px; font-weight: 600; text-align: center;
+  box-shadow: 0 1px 3px rgba(16,40,30,0.05); transition: transform .12s ease, filter .12s ease;
+  overflow-wrap: break-word; word-break: break-word; hyphens: auto; width: 100%;
+}
+.hubCard:active { transform: scale(0.95); filter: brightness(0.96); }
+.hubIcon {
+  width: 46px; height: 46px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+  transition: background .15s ease, color .15s ease;
+}
+.hubIcon svg { width: 22px; height: 22px; }
+.dashGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 980px) { .dashGrid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 720px) {
-  .settingsLayout { flex-direction: column; }
-  .settingsLayout > div:first-child { width: 100% !important; flex-direction: row !important; flex-wrap: wrap; }
+  .settingsLayout { flex-direction: column; gap: 14px !important; }
+  .settingsLayout > div:first-child {
+    width: 100% !important; flex-direction: row !important; flex-wrap: wrap !important;
+  }
+  .settingsLayout > div:first-child > button { flex-shrink: 0; width: auto !important; border-radius: 999px !important; }
 }
 
 .rangePopover { max-width: calc(100vw - 24px); }
 @media (max-width: 700px) {
+  /* Quick-select stays a narrow column on the left; the calendar (which needs the most room)
+     takes the right side — side by side instead of stacked, so nothing scrolls vertically. */
   .rangePopover {
     position: fixed !important; left: 12px !important; right: 12px !important; top: 96px !important;
-    width: auto !important; max-width: none !important; flex-direction: column !important;
-    max-height: 70vh !important; overflow-y: auto !important;
+    width: auto !important; max-width: none !important; flex-direction: row !important;
+    max-height: 70vh !important; overflow-y: auto !important; align-items: stretch !important;
   }
-  .rangePopoverQuick { border-left: none !important; border-top: 1px solid ${T.line}; }
+  .rangePopoverQuick {
+    order: -1; border-left: none !important; border-right: 1px solid ${T.line}; padding: 12px !important;
+    flex: 0 0 auto; min-width: 100px; width: 100px;
+  }
+  .rangePopover .popoverCalendars { order: 1; padding: 12px !important; gap: 8px !important; flex: 1; min-width: 0; }
+  .rangePopover .calendarRow { justify-content: center !important; }
+  .rangePopover .popoverNavLabel { min-width: 0 !important; font-size: 12px !important; }
+  .rangePopover .monthGridRow { grid-template-columns: repeat(7, 26px) !important; }
+  .rangePopover .monthGridCell { width: 26px !important; height: 26px !important; }
+  .rangePopover .popoverHint { font-size: 11px !important; }
 }
 `;
 
@@ -3635,12 +4336,12 @@ const S = {
   },
   navItemActive: { background: T.mint, color: T.dark, fontWeight: 700 },
   navCaption: { fontSize: 10.5, letterSpacing: 1.8, color: T.mut2, fontWeight: 700, padding: "10px 10px 0" },
-  sidebarFoot: { marginTop: "auto", fontSize: 11, color: T.mut2, letterSpacing: 0.5, padding: "0 8px" },
 
   topbar: {
-    display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap",
-    maxWidth: 1180, margin: "0 auto", padding: "24px 32px 20px",
+    display: "flex", flexDirection: "column", gap: 14,
+    maxWidth: 1180, margin: "0 auto", padding: "24px 32px 10px",
   },
+  topbarTitleRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" },
   pageTitle: { fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 700, color: T.text },
   pageSub: { fontSize: 12.5, color: T.mut, marginTop: 3 },
   savePill: { padding: "6px 14px", borderRadius: 20, fontSize: 12, border: `1px solid ${T.line}`, color: T.mut, background: T.surface },
@@ -3652,6 +4353,10 @@ const S = {
     borderRadius: 10, padding: "8px 12px", color: T.mut2, minWidth: 190,
   },
   searchInput: { border: "none", outline: "none", background: "transparent", fontSize: 13, fontFamily: FONT_BODY, color: T.text, width: "100%" },
+  iconTrigger: {
+    width: 40, height: 40, borderRadius: 12, background: T.surface, border: `1px solid ${T.line}`, color: T.mut,
+    display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+  },
   logBtn: {
     display: "flex", alignItems: "center", gap: 6, background: T.dark, color: "#fff", border: "none",
     borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, letterSpacing: 0.2,
@@ -3673,19 +4378,25 @@ const S = {
     cursor: "pointer", fontFamily: FONT_BODY, textAlign: "left", width: "100%",
   },
   activeSearchPill: {
-    display: "flex", alignItems: "center", gap: 8, background: T.mintSoft, color: "#1F7A46", fontSize: 12.5, fontWeight: 600,
+    display: "flex", alignItems: "center", gap: 8, background: T.mintSoft, color: T.darkSoft, fontSize: 12.5, fontWeight: 600,
     padding: "8px 12px", borderRadius: 10,
   },
-  activeSearchClear: { background: "transparent", border: "none", color: "#1F7A46", cursor: "pointer", fontSize: 12, padding: 0 },
+  activeSearchClear: { background: "transparent", border: "none", color: T.darkSoft, cursor: "pointer", fontSize: 12, padding: 0 },
 
   statusBar: {
-    display: "flex", alignItems: "center", gap: 10,
+    display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
   },
   stepBtn: {
     width: 32, height: 32, borderRadius: 10, background: T.surface, border: `1px solid ${T.line}`,
     color: T.text, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   stepBtnDisabled: { color: T.mut2, cursor: "default", opacity: 0.5 },
+  filterPickerTrigger: {
+    display: "flex", alignItems: "center", gap: 8, background: T.surface, border: `1px solid ${T.line}`,
+    borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 600, color: T.text, cursor: "pointer",
+    fontFamily: FONT_BODY, flex: "1 1 130px", minWidth: 0,
+  },
+  filterPickerTriggerDisabled: { opacity: 0.5, cursor: "default" },
   rangeTrigger: {
     display: "flex", alignItems: "center", gap: 8, background: T.surface, border: `1px solid ${T.line}`,
     borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600, color: T.text, cursor: "pointer", fontFamily: FONT_BODY,
@@ -3722,11 +4433,11 @@ const S = {
   monthGridInRange: { background: T.mintSoft },
   monthGridEdge: { background: T.mint, color: T.dark, fontWeight: 700 },
 
-  main: { maxWidth: 1180, margin: "0 auto", padding: "20px 32px 60px" },
+  main: { maxWidth: 1180, margin: "0 auto", padding: "10px 32px 60px" },
 
   hero: {
-    flex: "1.6 1 420px", display: "flex", flexDirection: "column", gap: 14,
-    background: `linear-gradient(150deg, ${T.dark}, ${T.darkSoft})`, borderRadius: 20, padding: 26,
+    flex: "1.6 1 420px", minWidth: 0, maxWidth: "100%", display: "flex", flexDirection: "column", gap: 14,
+    background: `linear-gradient(150deg, ${T.dark}, ${T.deepGreen})`, borderRadius: 20, padding: 26,
     color: "#EAF7EE", boxShadow: "0 16px 32px rgba(15,40,28,0.22)",
   },
   kicker: { fontSize: 11, letterSpacing: 2.2, color: "#9FCBAE", fontWeight: 600 },
@@ -3738,29 +4449,29 @@ const S = {
   flowLegend: { display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, color: "#CFE9D6" },
   dot: { display: "inline-block", width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   heroMiniRow: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: "auto" },
-  heroMini: { flex: "1 1 100px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 12, padding: "10px 14px" },
+  heroMini: { flex: "1 1 100px", minWidth: 0, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 12, padding: "10px 14px" },
 
-  quickActions: { flex: "1 1 260px", background: T.surface, border: `1px solid ${T.line}`, borderRadius: 20, padding: 22, boxShadow: "0 1px 2px rgba(16,40,30,0.04)" },
+  quickActions: { flex: "1 1 260px", minWidth: 0, maxWidth: "100%", background: T.surface, border: `1px solid ${T.line}`, borderRadius: 20, padding: 22, boxShadow: "0 1px 2px rgba(16,40,30,0.04)" },
   quickTitle: { fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 14 },
   quickGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
   quickBtn: {
     display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10,
-    border: `1px solid ${T.line}`, borderRadius: 14, padding: "14px 12px", cursor: "pointer",
+    background: T.surface2, border: `1px solid ${T.line}`, borderRadius: 14, padding: "14px 12px", cursor: "pointer",
     fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: T.text,
   },
   quickIcon: { width: 30, height: 30, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center" },
 
   statRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))", gap: 16, marginBottom: 20 },
-  statCard: { background: T.surface, border: `1px solid ${T.line}`, borderRadius: 18, padding: 20, boxShadow: "0 1px 2px rgba(16,40,30,0.04)" },
+  statCard: { minWidth: 0, background: T.surface, border: `1px solid ${T.line}`, borderRadius: 18, padding: 20, boxShadow: "0 1px 2px rgba(16,40,30,0.04)" },
   statTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
   statIcon: { width: 32, height: 32, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" },
   changeBadge: { fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20 },
-  changeUp: { background: T.mintSoft, color: "#1F7A46" },
+  changeUp: { background: T.mintSoft, color: T.darkSoft },
   changeDown: { background: T.roseSoft, color: T.rose },
   statValue: { fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 700, fontVariantNumeric: "tabular-nums", letterSpacing: -0.2 },
   statLabel: { fontSize: 12.5, color: T.mut, marginTop: 4 },
 
-  card: { background: T.surface, border: `1px solid ${T.line}`, borderRadius: 20, padding: 22, marginBottom: 20, boxShadow: "0 1px 2px rgba(16,40,30,0.04)", height: "100%", display: "flex", flexDirection: "column" },
+  card: { minWidth: 0, background: T.surface, border: `1px solid ${T.line}`, borderRadius: 20, padding: 22, marginBottom: 20, boxShadow: "0 1px 2px rgba(16,40,30,0.04)", height: "100%", display: "flex", flexDirection: "column" },
   statTabs: { display: "flex", gap: 24, marginBottom: 20 },
   statTab: {
     flex: 1, background: "transparent", border: "none", borderBottom: `2px solid ${T.line}`,
@@ -3775,6 +4486,10 @@ const S = {
   donutCenterValue: { fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, color: T.text, marginTop: 4, letterSpacing: -0.2 },
 
   linkBtn: { background: "transparent", border: "none", color: T.darkSoft, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "6px 4px" },
+  viewAllPill: {
+    display: "inline-flex", alignItems: "center", gap: 4, background: T.mintSoft, color: T.darkSoft,
+    border: "none", borderRadius: 20, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY,
+  },
 
   table: { width: "100%", borderCollapse: "collapse", minWidth: 520 },
   th: { textAlign: "left", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: T.mut2, padding: "0 10px 10px", borderBottom: `1px solid ${T.line}`, fontWeight: 600 },
@@ -3783,7 +4498,7 @@ const S = {
   tdMain: { color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 },
   tdSub: { fontSize: 11.5, color: T.mut2, marginTop: 2 },
   statusPill: { display: "inline-block", fontSize: 11, fontWeight: 700, padding: "4px 11px", borderRadius: 20 },
-  pillIncome: { background: T.mintSoft, color: "#1F7A46" },
+  pillIncome: { background: T.mintSoft, color: T.darkSoft },
   pillExpense: { background: T.roseSoft, color: T.rose },
 
   filterBar: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" },
@@ -3806,6 +4521,22 @@ const S = {
   txnMeta: { fontSize: 11.5, color: T.mut2 },
   txnAmt: { fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: -0.1 },
   editHint: { color: T.mut2, fontSize: 13, flexShrink: 0 },
+  txnDeleteBtn: {
+    display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%",
+    background: "none", border: "none", color: T.mut2, flexShrink: 0, cursor: "pointer",
+  },
+  cardIconBtn: {
+    display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%",
+    background: "none", border: "none", color: T.mut2, flexShrink: 0, cursor: "pointer", fontSize: 13,
+  },
+  confirmCancelBtn: {
+    background: T.surface2, color: T.text, border: "none", borderRadius: 9, padding: "8px 14px",
+    fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
+  },
+  confirmDeleteBtn: {
+    background: T.rose, color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px",
+    fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY,
+  },
   empty: { color: T.mut2, fontSize: 13, padding: "40px 0", textAlign: "center" },
   chipWrap: { display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" },
   chip: {
@@ -3816,7 +4547,7 @@ const S = {
   formCard: { background: T.surface, border: `1px solid ${T.line}`, borderRadius: 20, padding: 26, display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 1px 2px rgba(16,40,30,0.04)" },
   label: { fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: T.mut2, margin: "14px 0 6px", fontWeight: 600 },
   primaryBtn: {
-    marginTop: 20, background: T.dark, color: "#fff",
+    marginTop: 20, background: T.dark, color: "#fff", width: "100%", boxSizing: "border-box",
     border: "none", borderRadius: 12, padding: "13px 0", fontSize: 14.5, fontWeight: 700,
     fontFamily: FONT_DISPLAY, cursor: "pointer", letterSpacing: 0.3,
   },
@@ -3874,7 +4605,7 @@ const S = {
   tinyBtn: { background: T.surface, border: `1px solid ${T.line}`, color: T.mut2, borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontSize: 12 },
   settingsMsg: {
     background: T.goldSoft, border: `1px solid ${T.gold}55`, borderRadius: 10, padding: "9px 14px",
-    fontSize: 12.5, color: "#8A6416", marginBottom: 14,
+    fontSize: 12.5, color: T.gold, marginBottom: 14,
   },
   settingsTabBar: { display: "flex", flexDirection: "column", gap: 6, width: 180, flexShrink: 0 },
   settingsTabBtn: {
@@ -3883,7 +4614,7 @@ const S = {
   },
   settingsTabBtnActive: { background: T.dark, color: "#fff", border: `1px solid ${T.dark}` },
   uploadAvatarBtn: {
-    display: "flex", alignItems: "center", gap: 8, background: T.mintSoft, color: "#1F7A46", border: "none",
+    display: "flex", alignItems: "center", gap: 8, background: T.mintSoft, color: T.darkSoft, border: "none",
     borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY,
   },
   deleteAvatarBtn: {
@@ -3899,7 +4630,7 @@ const S = {
     display: "flex", flexDirection: "column", alignItems: "center", boxShadow: "0 1px 2px rgba(16,40,30,0.04)",
   },
   comingSoonBadge: {
-    background: T.mintSoft, color: "#1F7A46", fontSize: 11, fontWeight: 700, padding: "4px 12px",
+    background: T.mintSoft, color: T.darkSoft, fontSize: 11, fontWeight: 700, padding: "4px 12px",
     borderRadius: 20, letterSpacing: 0.5, textTransform: "uppercase",
   },
 };
