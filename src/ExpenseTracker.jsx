@@ -204,7 +204,7 @@ const SAVING_KEY = "expense-tracker:savings:v1";
 const PROFILE_KEY = "expense-tracker:profile:v1";
 const DAILY_LIMIT_KEY = "expense-tracker:dailylimit:v1";
 const DEFAULT_PROFILE = {
-  firstName: "You", lastName: "", email: "", color: "#2E9B8F", avatar: "",
+  name: "You", email: "", color: "#2E9B8F", avatar: "",
   sex: "", dobDay: "", dobMonth: "", dobYear: "",
   currency: "PKR", language: "English", theme: "system",
 };
@@ -218,17 +218,33 @@ const LANGUAGE_OPTIONS = ["English", "Urdu", "Arabic"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /* Per-user JSON blob storage in Supabase, keyed the same way the old window.storage keys were. */
-async function loadKey(userId, key, fallback) {
-  const { data, error } = await supabase.from("app_data").select("value").eq("user_id", userId).eq("key", key).maybeSingle();
-  if (error || !data) {
-    await supabase.from("app_data").upsert({ user_id: userId, key, value: fallback });
-    return fallback;
-  }
-  return data.value;
-}
 async function saveKey(userId, key, value) {
   const { error } = await supabase.from("app_data").upsert({ user_id: userId, key, value, updated_at: new Date().toISOString() });
   if (error) throw error;
+}
+/* Loads every key for this user in a single round trip instead of one request per key — the
+   post-login load used to fire 7 separate requests (wallets/budgets/savings/profile/daily
+   limit/txns/cats), each paying its own latency even though they ran in parallel. Missing keys
+   (first-ever login) are backfilled with their fallback value in the background so the initial
+   render isn't blocked waiting on those write-backs.
+   IMPORTANT: a query error must never be treated as "no rows" — doing so would make every key
+   look "missing" and backfill-overwrite real data with blank defaults on a transient failure. */
+async function loadAllData(userId, keysWithFallback) {
+  const { data, error } = await supabase.from("app_data").select("key,value").eq("user_id", userId);
+  if (error) throw error;
+  const byKey = new Map((data || []).map((r) => [r.key, r.value]));
+  const result = {};
+  const backfills = [];
+  for (const [key, fallback] of keysWithFallback) {
+    if (byKey.has(key)) {
+      result[key] = byKey.get(key);
+    } else {
+      result[key] = fallback;
+      backfills.push(supabase.from("app_data").upsert({ user_id: userId, key, value: fallback }));
+    }
+  }
+  if (backfills.length) Promise.all(backfills);
+  return result;
 }
 
 const MAX_WALLETS = 2;
@@ -1103,6 +1119,32 @@ function IconSearch() {
     </svg>
   );
 }
+function IconEye() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function IconEyeOff() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a20.3 20.3 0 015.06-5.94M9.9 4.24A10.4 10.4 0 0112 4c7 0 11 7 11 7a20.5 20.5 0 01-2.16 3.19M14.12 14.12a3 3 0 11-4.24-4.24" />
+      <path d="M1 1l22 22" />
+    </svg>
+  );
+}
+function IconGoogle() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 48 48">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.5 0 10.5-2.1 14.3-5.6l-6.6-5.6C29.6 34.7 27 35.6 24 35.6c-5.2 0-9.6-3.3-11.3-8l-6.6 5.1C9.6 39.6 16.3 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.6 5.6C41.6 35.9 44 30.5 44 24c0-1.3-.1-2.7-.4-3.5z" />
+    </svg>
+  );
+}
 /* ───────────────────────  SIDEBAR & TOPBAR  ─────────────────────── */
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", Icon: IconDashboard },
@@ -1257,11 +1299,11 @@ const NAV_HUB_ITEMS = [
   { key: "advisor", label: "AI advisor", Icon: IconChat },
   { key: "settings", label: "Settings", Icon: IconGear },
 ];
-function NavHub({ onClose, tab, goTab, setAddPreset }) {
+function NavHub({ onClose, tab, goTab, onQuickAdd }) {
   const go = (fn) => { fn(); onClose(); };
   const actionHandlers = {
-    "add-expense": () => { setAddPreset("expense"); goTab("add"); },
-    "add-income": () => { setAddPreset("income"); goTab("add"); },
+    "add-expense": () => onQuickAdd("expense"),
+    "add-income": () => onQuickAdd("income"),
   };
   return (
     <Sheet onClose={onClose}>
@@ -1302,14 +1344,20 @@ const PAGE_COPY = {
 const TODAY_LABEL = new Date().toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
 function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWalletFilter, search, onSearchChange, onLog, profile, onOpenSettings, onLogout }) {
+  const theme = useAppliedTheme();
   const showControls = STATUS_BAR_TABS.has(tab);
-  const fullName = `${profile?.firstName || ""} ${profile?.lastName || ""}`.trim();
+  const fullName = (profile?.name || "").trim();
   const initials = (fullName || "Y").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
   return (
     <header className="appTopbar" style={S.topbar}>
+      {/* Sidebar (with the QYNT logo) is hidden on phone, so give mobile its own slim brand row
+          up top instead — desktop already gets the logo from the sidebar. */}
+      <div className="mobileOnly" style={S.topbarBrandRow}>
+        <img src={theme === "dark" ? qyntLogoDark : qyntLogo} alt="QYNT" style={{ height: 22, width: "auto", display: "block" }} />
+      </div>
       {/* Title and account trigger share a row of their own so the avatar always stays pinned to
           the top-right corner — otherwise, once the filter/search controls below wrap onto a
           second line on narrow phones, the avatar would wrap down with them instead of staying put. */}
@@ -1347,28 +1395,34 @@ function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWal
         </div>
       </div>
 
-      {showControls && (
       <div style={S.topbarControls}>
-        <StatusBar scope={scope} setScope={setScope} wallets={wallets} walletFilter={walletFilter} setWalletFilter={setWalletFilter} />
+        {showControls && (
+          <>
+            <StatusBar scope={scope} setScope={setScope} wallets={wallets} walletFilter={walletFilter} setWalletFilter={setWalletFilter} />
 
-        {/* Desktop only — removed from the mobile topbar entirely to cut clutter. Collapsed to an
-            icon by default so it doesn't take up permanent header width; clicking it reveals the
-            actual input. */}
-        <div className="desktopOnly">
-          {searchOpen ? (
-            <div style={S.searchWrap}>
-              <IconSearch />
-              <input className="field" autoFocus placeholder="Search transactions…"
-                value={search} onChange={(e) => onSearchChange(e.target.value)}
-                onBlur={() => { if (!search) setSearchOpen(false); }} style={S.searchInput} />
+            {/* Desktop only — removed from the mobile topbar entirely to cut clutter. Collapsed to an
+                icon by default so it doesn't take up permanent header width; clicking it reveals the
+                actual input. */}
+            <div className="desktopOnly">
+              {searchOpen ? (
+                <div style={S.searchWrap}>
+                  <IconSearch />
+                  <input className="field" autoFocus placeholder="Search transactions…"
+                    value={search} onChange={(e) => onSearchChange(e.target.value)}
+                    onBlur={() => { if (!search) setSearchOpen(false); }} style={S.searchInput} />
+                </div>
+              ) : (
+                <button aria-label="Search transactions" onClick={() => setSearchOpen(true)} style={S.iconTrigger}>
+                  <IconSearch />
+                </button>
+              )}
             </div>
-          ) : (
-            <button aria-label="Search transactions" onClick={() => setSearchOpen(true)} style={S.iconTrigger}>
-              <IconSearch />
-            </button>
-          )}
-        </div>
+          </>
+        )}
 
+        {/* Kept outside showControls — this is the only feedback the user gets that a write (a
+            delete, a rename, a color change…) actually persisted, so it needs to survive on every
+            page that can mutate data, not just the three pages with the full filter bar. */}
         {saveState && (
           <div style={{ ...S.savePill, ...(saveState === "error" ? S.savePillError : {}) }}>
             {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : "⚠ Couldn't save"}
@@ -1377,7 +1431,6 @@ function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWal
         {/* On mobile, the central Hub button already covers "add a transaction". */}
         <button className="primaryBtn desktopOnly" onClick={onLog} style={S.logBtn}><IconPlus /> Log</button>
       </div>
-      )}
     </header>
   );
 }
@@ -1388,8 +1441,10 @@ const STATUS_BAR_TABS = new Set(["dashboard", "transactions", "statistics"]);
 function AuthScreen() {
   const theme = useAppliedTheme();
   const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [err, setErr] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1410,13 +1465,20 @@ function AuthScreen() {
     e.preventDefault();
     setErr(""); setInfo(""); setBusy(true);
     if (mode === "signup") {
-      const { error } = await supabase.auth.signUp({ email, password });
+      const { error } = await supabase.auth.signUp({ email, password, options: { data: { name: name.trim() } } });
       if (error) setErr(error.message);
       else setInfo("Account created — check your email to confirm it, then log in.");
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setErr(error.message);
     }
+    setBusy(false);
+  };
+
+  const submitGoogle = async () => {
+    setErr(""); setInfo(""); setBusy(true);
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "google" });
+    if (error) setErr(error.message);
     setBusy(false);
   };
 
@@ -1432,14 +1494,30 @@ function AuthScreen() {
           <button type="button" onClick={() => switchMode("signup")} style={{ ...S.segBtn, flex: 1, ...(mode === "signup" ? S.segBtnActive : {}) }}>Sign up</button>
         </div>
 
+        {mode === "signup" && (
+          <>
+            <label style={S.label}>Name</label>
+            <input className="field" required autoComplete="name" value={name}
+              onChange={(e) => setName(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
+          </>
+        )}
+
         <label style={S.label}>Email</label>
         <input className="field" type="email" required autoComplete="email" value={email}
           onChange={(e) => setEmail(e.target.value)} style={{ ...S.input, width: "100%" }} />
 
         <label style={S.label}>Password</label>
-        <input className="field" type="password" required minLength={6}
-          autoComplete={mode === "signup" ? "new-password" : "current-password"}
-          value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...S.input, width: "100%" }} />
+        <div style={{ position: "relative" }}>
+          <input className="field" type={showPassword ? "text" : "password"} required minLength={6}
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
+            value={password} onChange={(e) => setPassword(e.target.value)}
+            style={{ ...S.input, width: "100%", boxSizing: "border-box", paddingRight: 40 }} />
+          <button type="button" onClick={() => setShowPassword((s) => !s)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            style={S.passwordToggle}>
+            {showPassword ? <IconEyeOff /> : <IconEye />}
+          </button>
+        </div>
 
         {mode === "login" && (
           <button type="button" className="linkBtn" onClick={forgotPassword}
@@ -1453,6 +1531,16 @@ function AuthScreen() {
 
         <button type="submit" disabled={busy} className="primaryBtn" style={{ ...S.primaryBtn, opacity: busy ? 0.6 : 1 }}>
           {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Log in"}
+        </button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0" }}>
+          <div style={{ flex: 1, height: 1, background: T.line }} />
+          <span style={{ fontSize: 11.5, color: T.mut2 }}>OR</span>
+          <div style={{ flex: 1, height: 1, background: T.line }} />
+        </div>
+
+        <button type="button" disabled={busy} onClick={submitGoogle} style={S.googleBtn}>
+          <IconGoogle /> {mode === "signup" ? "Sign up with Google" : "Continue with Google"}
         </button>
       </form>
     </div>
@@ -1479,6 +1567,7 @@ export default function ExpenseTracker() {
   const [saveState, setSaveState] = useState("");
   const [editing, setEditing] = useState(null); // txn being edited
   const [addPreset, setAddPreset] = useState(null); // "income" | "expense" | null
+  const [returnTab, setReturnTab] = useState("dashboard"); // where to go back to after the Add sheet closes
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -1494,24 +1583,50 @@ export default function ExpenseTracker() {
     }
     (async () => {
       const uid_ = session.user.id;
-      const [walletsRes, budgetsRes, savingsRes, profileRes, dailyLimitRes, txnsRes, catsRes] = await Promise.all([
-        loadKey(uid_, WALLET_KEY, DEFAULT_WALLETS),
-        loadKey(uid_, BUDGET_KEY, []),
-        loadKey(uid_, SAVING_KEY, []),
-        loadKey(uid_, PROFILE_KEY, { ...DEFAULT_PROFILE, email: session.user.email || "" }),
-        loadKey(uid_, DAILY_LIMIT_KEY, 0),
-        loadKey(uid_, TXN_KEY, []),
-        loadKey(uid_, CAT_KEY, DEFAULT_CATS),
-      ]);
-      setWallets(walletsRes);
-      setBudgets(budgetsRes);
-      setSavings(savingsRes);
-      setProfile({ ...DEFAULT_PROFILE, ...profileRes });
-      setDailyLimit(dailyLimitRes);
-      setTxns(txnsRes);
-      setCats(catsRes);
+      const meta = session.user.user_metadata || {};
+      const metaName = meta.name || meta.full_name || "";
+      const keys = [
+        [WALLET_KEY, DEFAULT_WALLETS],
+        [BUDGET_KEY, []],
+        [SAVING_KEY, []],
+        [PROFILE_KEY, { ...DEFAULT_PROFILE, name: metaName || DEFAULT_PROFILE.name, email: session.user.email || "" }],
+        [DAILY_LIMIT_KEY, 0],
+        [TXN_KEY, []],
+        [CAT_KEY, DEFAULT_CATS],
+      ];
+      // A failed fetch must never fall through to defaults (that would silently overwrite real
+      // data — see loadAllData's error handling). Retry once after a beat, then leave the
+      // skeleton loader up rather than risk a data-losing write.
+      let all;
+      try {
+        all = await loadAllData(uid_, keys);
+      } catch {
+        await new Promise((r) => setTimeout(r, 1200));
+        try { all = await loadAllData(uid_, keys); }
+        catch (e2) { console.error("Failed to load account data after retry:", e2); return; }
+      }
+      const loadedProfile = all[PROFILE_KEY];
+      // Migrate older accounts that stored separate firstName/lastName fields onto the single
+      // "name" field, without dropping any of the rest of their saved profile.
+      const migratedName = loadedProfile.name || `${loadedProfile.firstName || ""} ${loadedProfile.lastName || ""}`.trim() || undefined;
+      setWallets(all[WALLET_KEY]);
+      setBudgets(all[BUDGET_KEY]);
+      setSavings(all[SAVING_KEY]);
+      setProfile({ ...DEFAULT_PROFILE, ...loadedProfile, ...(migratedName ? { name: migratedName } : {}) });
+      setDailyLimit(all[DAILY_LIMIT_KEY]);
+      setTxns(all[TXN_KEY]);
+      setCats(all[CAT_KEY]);
     })();
   }, [session]);
+
+  // If the wallet currently applied as a filter gets deleted (from Settings), fall back to "all"
+  // rather than leaving the app silently filtered down to zero wallets/transactions with no way
+  // to notice why, since the Wallets page no longer surfaces its own filter control to reset it.
+  useEffect(() => {
+    if (wallets && walletFilter !== "all" && !wallets.some((w) => w.id === walletFilter)) {
+      setWalletFilter("all");
+    }
+  }, [wallets, walletFilter]);
 
   // Apply the chosen theme to the whole document. "system" tracks the OS setting live, including
   // if the user flips their OS theme while the app is already open.
@@ -1585,9 +1700,11 @@ export default function ExpenseTracker() {
   const catColor = (head) => cats?.heads.find((h) => h.name === head)?.color || T.mut;
 
   const goTab = (k) => { setTab(k); if (k !== "add") setAddPreset(null); };
+  const openAdd = (preset) => { setReturnTab(tab); setAddPreset(preset); goTab("add"); };
   const handleSearchChange = (v) => { setSearch(v); if (v && tab !== "transactions") goTab("transactions"); };
   const openProfileSettings = () => { setSettingsTab("profile"); goTab("settings"); };
   const viewSubcategoryTxns = (head, sub) => { setTxnFilter({ head, sub }); goTab("transactions"); };
+  const viewTypeTxns = (type) => { setTxnFilter({ type }); goTab("transactions"); };
 
   const resetAllData = async () => {
     await supabase.from("app_data").delete().eq("user_id", session.user.id);
@@ -1626,26 +1743,27 @@ export default function ExpenseTracker() {
       <div className="mobileMain" style={{ flex: 1, minWidth: 0 }}>
         <Topbar tab={tab} saveState={saveState} scope={scope} setScope={setScope}
           wallets={wallets} walletFilter={walletFilter} setWalletFilter={setWalletFilter}
-          search={search} onSearchChange={handleSearchChange} onLog={() => goTab("add")}
+          search={search} onSearchChange={handleSearchChange} onLog={() => openAdd(null)}
           profile={profile} onOpenSettings={openProfileSettings} onLogout={() => supabase.auth.signOut()} />
 
         {tab === "dashboard" && (
-          <Dashboard txns={filteredTxns} catColor={catColor} cats={cats} setTab={goTab} setAddPreset={setAddPreset} scope={scope}
+          <Dashboard txns={filteredTxns} catColor={catColor} cats={cats} setTab={goTab} onQuickAdd={openAdd} scope={scope}
             savings={savings} dailyLimit={dailyLimit} budgets={budgets} currency={profile.currency} wallets={filteredWallets}
-            setSettingsTab={setSettingsTab} onViewSubcategory={viewSubcategoryTxns} firstName={profile.firstName} />
+            setSettingsTab={setSettingsTab} onViewSubcategory={viewSubcategoryTxns} onViewType={viewTypeTxns} name={profile.name} />
         )}
         {tab === "transactions" && (
           <Transactions txns={filteredTxns} cats={cats} catColor={catColor} onEdit={setEditing} onDelete={deleteTxn} scope={scope}
             search={search} setSearch={setSearch} currency={profile.currency}
-            presetFilter={txnFilter} onConsumePresetFilter={() => setTxnFilter(null)} />
+            presetFilter={txnFilter} onConsumePresetFilter={() => setTxnFilter(null)}
+            onQuickAdd={openAdd} />
         )}
         {tab === "statistics" && (
           <Statistics txns={filteredTxns} cats={cats} scope={scope} currency={profile.currency} budgets={budgets} wallets={filteredWallets} onViewSubcategory={viewSubcategoryTxns} />
         )}
         {tab === "add" && (
-          <Modal onClose={() => goTab("dashboard")}>
+          <Modal onClose={() => goTab(returnTab)}>
             <TxnForm cats={cats} presetType={addPreset} wallets={wallets} savings={savings} currency={profile.currency} embedded
-              onSave={(t) => { addTxn(t); goTab("transactions"); }} />
+              onSave={(t) => { addTxn(t); goTab(returnTab); }} />
           </Modal>
         )}
         {tab === "settings" && (
@@ -1657,7 +1775,9 @@ export default function ExpenseTracker() {
             settingsTab={settingsTab} setSettingsTab={setSettingsTab}
             onLogout={() => supabase.auth.signOut()} onResetData={resetAllData} />
         )}
-        {tab === "wallets" && <Wallets txns={filteredTxns} wallets={filteredWallets} scope={scope} currency={profile.currency}
+        {/* Unfiltered on purpose — "My accounts" is the one page where seeing every wallet is the
+            whole point, and it has no filter control of its own to reset walletFilter from. */}
+        {tab === "wallets" && <Wallets txns={txns} wallets={wallets} scope={scope} currency={profile.currency}
           onAddWallet={() => { setSettingsTab("wallets"); goTab("settings"); }} />}
         {tab === "budgets" && <Budgets txns={txns} budgets={budgets} catColor={catColor} currency={profile.currency}
           onEditBudget={() => { setSettingsTab("budgets"); goTab("settings"); }} onDeleteBudget={deleteBudgetById} />}
@@ -1686,14 +1806,14 @@ export default function ExpenseTracker() {
 
       <NavHubButton open={hubOpen} onToggle={() => setHubOpen((o) => !o)} />
       {hubOpen && (
-        <NavHub onClose={() => setHubOpen(false)} tab={tab} goTab={goTab} setAddPreset={setAddPreset} />
+        <NavHub onClose={() => setHubOpen(false)} tab={tab} goTab={goTab} onQuickAdd={openAdd} />
       )}
     </div>
   );
 }
 
 /* ───────────────────────  DASHBOARD  ─────────────────────── */
-function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings, dailyLimit, budgets, currency, wallets, setSettingsTab, onViewSubcategory, firstName }) {
+function Dashboard({ txns, catColor, cats, setTab, onQuickAdd, scope, savings, dailyLimit, budgets, currency, wallets, setSettingsTab, onViewSubcategory, onViewType, name }) {
   const openSettings = (subTab) => { setSettingsTab(subTab); setTab("settings"); };
   const scopedTxns = txns.filter((t) => inScope(t.date, scope));
   const income = scopedTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -1712,11 +1832,11 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
 
   return (
     <main style={S.main}>
-      <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 16 }}>
-        Welcome back,<br />{firstName || "there"} 👋
+      <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 16, fontSize: "clamp(17px, 5.4vw, 24px)" }}>
+        Welcome back,<br />{name || "there"} 👋
       </div>
-      <div className="desktopOnly" style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 18 }}>
-        Welcome back, {firstName || "there"} 👋
+      <div className="desktopOnly" style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 18 }}>
+        Welcome back, {name || "there"} 👋
       </div>
       {/* hero + quick actions */}
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 20 }}>
@@ -1732,20 +1852,20 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
             <span style={{ color: "#9FCBAE" }}>{income > 0 ? `${spentPct.toFixed(0)}% of income spent` : ""}</span>
           </div>
           <div className="heroMiniRow" style={S.heroMiniRow}>
-            <MiniCard label="Income" value={money(income, currency)} color={T.gold} />
-            <MiniCard label="Expenses" value={money(-expense, currency)} color="#FFB3C0" />
-            <MiniCard label={<><span className="desktopOnly">Transactions</span><span className="mobileOnly">Txns</span></>} value={scopedTxns.length} color="#CFE9D6" />
+            <MiniCard label="Income" value={money(income, currency)} color={T.gold} onClick={() => onViewType("income")} />
+            <MiniCard label="Expenses" value={money(-expense, currency)} color="#FFB3C0" onClick={() => onViewType("expense")} />
+            <MiniCard label={<><span className="desktopOnly">Transactions</span><span className="mobileOnly">Txns</span></>} value={scopedTxns.length} color="#CFE9D6" onClick={() => onViewType("all")} />
           </div>
         </section>
 
         <section className="quickActionsSection" style={S.quickActions}>
           <div style={S.quickTitle}>Quick actions</div>
           <div style={S.quickGrid}>
-            <button className="quickBtn" style={S.quickBtn} onClick={() => { setAddPreset("expense"); setTab("add"); }}>
+            <button className="quickBtn" style={S.quickBtn} onClick={() => onQuickAdd("expense")}>
               <span style={{ ...S.quickIcon, background: T.roseSoft, color: T.rose }}><IconPlus /></span>
               Add expense
             </button>
-            <button className="quickBtn" style={S.quickBtn} onClick={() => { setAddPreset("income"); setTab("add"); }}>
+            <button className="quickBtn" style={S.quickBtn} onClick={() => onQuickAdd("income")}>
               <span style={{ ...S.quickIcon, background: T.mintSoft, color: T.darkSoft }}><IconPlus /></span>
               Add income
             </button>
@@ -1783,14 +1903,18 @@ function Dashboard({ txns, catColor, cats, setTab, setAddPreset, scope, savings,
         <FinanceScoreCard txns={txns} budgets={budgets} scope={scope} />
       </div>
 
-      {/* Daily limit doesn't need much width, but the full-year heatmap (53 weeks) needs the whole
-          row — squeezed into a grid column it was narrower than the grid's content, forcing an
-          unwanted horizontal scroll even on wide desktop screens. */}
-      <div style={{ marginBottom: 20 }}>
-        <DailyLimitCard txns={txns} dailyLimit={dailyLimit} onSetLimit={() => openSettings("limit")} currency={currency} />
-      </div>
-      <div style={{ marginBottom: 20 }}>
-        <BurnRateHeatmap txns={txns} currency={currency} />
+      {/* Daily limit doesn't need much width, but the full-year heatmap (53 weeks) needs most of
+          the row — giving it an even grid split (like a plain 2-column grid) squeezed it narrower
+          than its content, forcing an unwanted horizontal scroll. A fixed-width limit card plus a
+          flexible heatmap column avoids that while still sitting side by side on desktop; mobile
+          stacks them like every other mobileOnly/desktopOnly pair in this file. */}
+      <div className="dailyLimitBurnRow" style={{ marginBottom: 20 }}>
+        <div style={{ flex: "0 0 220px", minWidth: 0 }}>
+          <DailyLimitCard txns={txns} dailyLimit={dailyLimit} onSetLimit={() => openSettings("limit")} currency={currency} />
+        </div>
+        <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+          <BurnRateHeatmap txns={txns} currency={currency} />
+        </div>
       </div>
 
       <Card title="Recent transactions" sub="Latest activity"
@@ -1981,10 +2105,18 @@ function CashflowCard({ txns, currency, scope }) {
   }, [txns, scope]);
 
   // Beyond ~3 months, per-day points make for a cluttered, unevenly-ticked x-axis — group by month instead.
-  const data = visual === 1 && daily.length <= 92 ? daily : monthly;
+  const isDailyView = visual === 1 && daily.length <= 92;
+  const data = isDailyView ? daily : monthly;
   const hasData = data.some((d) => d.Income || d.Expense);
   // Skip alternating labels once there are enough points that every tick would crowd/overlap.
   const tickInterval = data.length > 8 ? Math.ceil(data.length / 7) - 1 : 0;
+  // Mobile has much less width per tick — needs shorter label text ("11" / "Jul" instead of
+  // "Jul 11" / "Jul 2024") and more aggressive tick-skipping, or labels overlap regardless of count.
+  const mobileTickInterval = data.length > 4 ? Math.ceil(data.length / 4) - 1 : 0;
+  const mobileTickFormatter = (v) => {
+    const parts = v.split(" ");
+    return isDailyView ? (parts[1] || v) : parts[0];
+  };
 
   return (
     <Card title="Cashflow" sub="Income vs expenses"
@@ -2015,42 +2147,86 @@ function CashflowCard({ txns, currency, scope }) {
       </div>
 
       {!hasData ? <Empty msg="No activity in this range." /> : (
-        <div style={{ width: "100%", height: 260 }}>
-          <ResponsiveContainer>
-            {visual === 1 ? (
-              <AreaChart data={data}>
-                <defs>
-                  <linearGradient id="cfIncomeGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={T.mint} stopOpacity={0.4} />
-                    <stop offset="100%" stopColor={T.mint} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="cfExpenseGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={T.darkSoft} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={T.darkSoft} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={T.line} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
-                <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
-                <Tooltip content={<Tip currency={currency} />} cursor={{ stroke: T.line, strokeDasharray: "4 4" }} />
-                <Area type="monotone" dataKey="Income" stroke={T.mint} strokeWidth={2.5} fill="url(#cfIncomeGrad)" activeDot={{ r: 5 }} />
-                <Area type="monotone" dataKey="Expense" stroke={T.darkSoft} strokeWidth={2.5} fill="url(#cfExpenseGrad)" activeDot={{ r: 5 }} />
-              </AreaChart>
-            ) : (
-              <BarChart data={data} barGap={4}>
-                <CartesianGrid stroke={T.line} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
-                <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => (Math.abs(v) >= 1000 ? `${v / 1000}k` : v)} />
-                <Tooltip content={<Tip currency={currency} />} cursor={{ fill: T.surface2 }} />
-                <ReferenceLine y={0} stroke={T.line} />
-                <Bar dataKey="Income" fill={T.darkSoft} radius={[4, 4, 0, 0]} />
-                <Bar dataKey={(d) => -d.Expense} name="Expense" fill={T.mint} radius={[0, 0, 4, 4]} />
-              </BarChart>
-            )}
-          </ResponsiveContainer>
-        </div>
+        <>
+          <div className="desktopOnly" style={{ width: "100%", height: 260 }}>
+            <ResponsiveContainer>
+              {visual === 1 ? (
+                <AreaChart data={data}>
+                  <defs>
+                    <linearGradient id="cfIncomeGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={T.mint} stopOpacity={0.4} />
+                      <stop offset="100%" stopColor={T.mint} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="cfExpenseGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={T.darkSoft} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={T.darkSoft} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={T.line} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
+                  <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
+                    tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
+                  <Tooltip content={<Tip currency={currency} />} cursor={{ stroke: T.line, strokeDasharray: "4 4" }} />
+                  <Area type="monotone" dataKey="Income" stroke={T.mint} strokeWidth={2.5} fill="url(#cfIncomeGrad)" activeDot={{ r: 5 }} />
+                  <Area type="monotone" dataKey="Expense" stroke={T.darkSoft} strokeWidth={2.5} fill="url(#cfExpenseGrad)" activeDot={{ r: 5 }} />
+                </AreaChart>
+              ) : (
+                <BarChart data={data} barGap={4}>
+                  <CartesianGrid stroke={T.line} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
+                  <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
+                    tickFormatter={(v) => (Math.abs(v) >= 1000 ? `${v / 1000}k` : v)} />
+                  <Tooltip content={<Tip currency={currency} />} cursor={{ fill: T.surface2 }} />
+                  <ReferenceLine y={0} stroke={T.line} />
+                  <Bar dataKey="Income" fill={T.darkSoft} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={(d) => -d.Expense} name="Expense" fill={T.mint} radius={[0, 0, 4, 4]} />
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+
+          {/* Mobile: shorter tick text ("11"/"Jul" instead of "Jul 11"/"Jul 2024") plus more
+              aggressive tick-skipping — full labels overlap regardless of point count on a
+              narrow screen. The tooltip still reads from the untouched full "label" field. */}
+          <div className="mobileOnly" style={{ width: "100%", height: 260 }}>
+            <ResponsiveContainer>
+              {visual === 1 ? (
+                <AreaChart data={data}>
+                  <defs>
+                    <linearGradient id="cfIncomeGradM" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={T.mint} stopOpacity={0.4} />
+                      <stop offset="100%" stopColor={T.mint} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="cfExpenseGradM" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={T.darkSoft} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={T.darkSoft} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={T.line} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false}
+                    interval={mobileTickInterval} tickFormatter={mobileTickFormatter} />
+                  <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
+                    tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
+                  <Tooltip content={<Tip currency={currency} />} cursor={{ stroke: T.line, strokeDasharray: "4 4" }} />
+                  <Area type="monotone" dataKey="Income" stroke={T.mint} strokeWidth={2.5} fill="url(#cfIncomeGradM)" activeDot={{ r: 5 }} />
+                  <Area type="monotone" dataKey="Expense" stroke={T.darkSoft} strokeWidth={2.5} fill="url(#cfExpenseGradM)" activeDot={{ r: 5 }} />
+                </AreaChart>
+              ) : (
+                <BarChart data={data} barGap={4}>
+                  <CartesianGrid stroke={T.line} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false}
+                    interval={mobileTickInterval} tickFormatter={mobileTickFormatter} />
+                  <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
+                    tickFormatter={(v) => (Math.abs(v) >= 1000 ? `${v / 1000}k` : v)} />
+                  <Tooltip content={<Tip currency={currency} />} cursor={{ fill: T.surface2 }} />
+                  <ReferenceLine y={0} stroke={T.line} />
+                  <Bar dataKey="Income" fill={T.darkSoft} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={(d) => -d.Expense} name="Expense" fill={T.mint} radius={[0, 0, 4, 4]} />
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </>
       )}
     </Card>
   );
@@ -2176,7 +2352,7 @@ function DailyLimitCard({ txns, dailyLimit, onSetLimit, currency }) {
 
   if (!dailyLimit) {
     return (
-      <div style={S.statCard}>
+      <div style={{ ...S.statCard, width: "100%", height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center" }}>
         <div style={S.statTop}>
           <span style={{ ...S.statIcon, background: T.surface2, color: T.mut }}><IconGauge /></span>
         </div>
@@ -2189,7 +2365,7 @@ function DailyLimitCard({ txns, dailyLimit, onSetLimit, currency }) {
   const pct = Math.min(100, (spentToday / dailyLimit) * 100);
   const over = spentToday > dailyLimit;
   return (
-    <div style={S.statCard}>
+    <div style={{ ...S.statCard, width: "100%", height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center" }}>
       <div style={S.statTop}>
         <span style={{ ...S.statIcon, background: over ? T.roseSoft : T.mintSoft, color: over ? T.rose : T.darkSoft }}><IconGauge /></span>
         <span style={{ fontSize: 11, fontWeight: 700, color: over ? T.rose : T.mut2 }}>{pct.toFixed(0)}%</span>
@@ -2209,7 +2385,10 @@ function DailyLimitCard({ txns, dailyLimit, onSetLimit, currency }) {
 function BurnRateHeatmap({ txns, currency }) {
   const year = new Date().getFullYear();
   const todayStr = iso(new Date());
-  const cell = 12, gap = 3;
+  /* Sized so the full 53-week grid fits without horizontal scroll next to the (now narrower)
+     Daily Limit card on a typical ~1280px desktop screen — 12px cells needed ~815px including
+     row labels, but the sidebar (236px) plus card padding leaves only ~700px there in practice. */
+  const cell = 9, gap = 2;
 
   const spendByDay = useMemo(() => {
     const m = {};
@@ -2232,7 +2411,9 @@ function BurnRateHeatmap({ txns, currency }) {
     if (v <= thresholds.q75) return 3;
     return 4;
   };
-  const bucketColor = [T.surface2, T.mintSoft, T.mint, T.deepGreen, T.dark];
+  // Fixed light-to-dark red scale (not theme-reactive) so "no spend" always reads as the
+  // lightest cell and "high spend" the darkest, regardless of light/dark app theme.
+  const bucketColor = ["#FDE2E6", "#F8B4C0", "#F2748A", "#C23A52", "#7A1F30"];
 
   const weeks = useMemo(() => {
     const jan1 = new Date(year, 0, 1);
@@ -2270,7 +2451,7 @@ function BurnRateHeatmap({ txns, currency }) {
   /* Full 53-week grid can't fit any phone width without horizontal scrolling, which reads badly
      as a "swipe to see the chart" experience. Mobile instead gets a condensed recent-weeks grid
      (bigger cells, no scroll needed); desktop keeps the full-year view. */
-  const MOBILE_WEEKS = 12;
+  const MOBILE_WEEKS = 20;
   /* `weeks` spans the full calendar year (Jan–Dec), so slicing from the end grabs the year's last
      weeks — usually still in the future relative to today, showing an empty-looking grid. Slice
      around today's actual week instead. */
@@ -2278,7 +2459,7 @@ function BurnRateHeatmap({ txns, currency }) {
   const mobileWeeks = todayWeekIndex === -1
     ? weeks.slice(-MOBILE_WEEKS)
     : weeks.slice(Math.max(0, todayWeekIndex - MOBILE_WEEKS + 1), todayWeekIndex + 1);
-  const mCell = 12, mGap = 3;
+  const mCell = 8, mGap = 2;
 
   const renderGrid = (weekList, cellSize, gapSize, showMonths) => (
     <div style={{ display: "flex" }}>
@@ -2332,7 +2513,7 @@ function BurnRateHeatmap({ txns, currency }) {
         {bucketColor.slice(0, 4).map((c, i) => (
           <i key={i} style={{ width: 12, height: 12, borderRadius: 3, background: c, border: `1px solid ${T.line}`, display: "inline-block", boxSizing: "border-box" }} />
         ))}
-        <i style={{ width: 12, height: 12, borderRadius: 3, background: T.dark, display: "inline-block" }} />
+        <i style={{ width: 12, height: 12, borderRadius: 3, background: bucketColor[4], display: "inline-block" }} />
         <span>High</span>
         <i style={{ width: 12, height: 12, borderRadius: 3, background: T.mint, border: `2px solid ${T.dark}`, display: "inline-block", boxSizing: "border-box" }} />
         <span>Today</span>
@@ -2687,6 +2868,36 @@ function Forecast({ txns, currency }) {
   // Skip alternating labels once there are enough bars that every tick would crowd/overlap.
   const tickInterval = combined.length > 8 ? Math.ceil(combined.length / 7) - 1 : 0;
 
+  // The full history (potentially 20+ months) can't fit readable labels on a phone screen no
+  // matter the tick-skipping — mobile gets a shorter trailing window instead; desktop keeps
+  // the full chart since it has the width to space labels out.
+  const MOBILE_MONTHS = 5;
+  const mobileSeries = series.slice(-MOBILE_MONTHS);
+  const mobileCombined = [...mobileSeries, ...projected];
+  const mobileTickInterval = mobileCombined.length > 8 ? Math.ceil(mobileCombined.length / 7) - 1 : 0;
+
+  const renderChart = (data, interval, shortLabels) => (
+    <div style={{ width: "100%", height: 280 }}>
+      <ResponsiveContainer>
+        <BarChart data={data} barGap={4}>
+          <CartesianGrid stroke={T.line} vertical={false} />
+          <XAxis dataKey="month" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={interval}
+            tickFormatter={shortLabels ? (v) => v.split(" ")[0] : undefined} />
+          <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
+            tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
+          <Tooltip content={<Tip currency={currency} />} cursor={{ fill: T.surface2 }} />
+          <Legend wrapperStyle={{ fontSize: 11, color: T.mut }} />
+          <Bar dataKey="Income" fill={T.darkSoft} radius={[4, 4, 0, 0]}>
+            {data.map((d, i) => <Cell key={i} fill={T.darkSoft} fillOpacity={d.projected ? 0.35 : 1} />)}
+          </Bar>
+          <Bar dataKey="Expenses" fill={T.mint} radius={[4, 4, 0, 0]}>
+            {data.map((d, i) => <Cell key={i} fill={T.mint} fillOpacity={d.projected ? 0.5 : 1} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+
   return (
     <main style={S.main}>
       <Card title="Predictive cash flow" sub="Based on your full transaction history">
@@ -2699,24 +2910,8 @@ function Forecast({ txns, currency }) {
               <strong style={{ color: avgNet >= 0 ? T.darkSoft : T.rose }}>{money(avgNet, currency)}/month</strong>.
               The lighter bars below are a projection based on that average, not a guarantee.
             </div>
-            <div style={{ width: "100%", height: 280 }}>
-              <ResponsiveContainer>
-                <BarChart data={combined} barGap={4}>
-                  <CartesianGrid stroke={T.line} vertical={false} />
-                  <XAxis dataKey="month" tick={{ fill: T.mut2, fontSize: 11 }} axisLine={false} tickLine={false} interval={tickInterval} />
-                  <YAxis tick={{ fill: T.mut2, fontSize: 10 }} axisLine={false} tickLine={false}
-                    tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
-                  <Tooltip content={<Tip currency={currency} />} cursor={{ fill: T.surface2 }} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: T.mut }} />
-                  <Bar dataKey="Income" fill={T.darkSoft} radius={[4, 4, 0, 0]}>
-                    {combined.map((d, i) => <Cell key={i} fill={T.darkSoft} fillOpacity={d.projected ? 0.35 : 1} />)}
-                  </Bar>
-                  <Bar dataKey="Expenses" fill={T.mint} radius={[4, 4, 0, 0]}>
-                    {combined.map((d, i) => <Cell key={i} fill={T.mint} fillOpacity={d.projected ? 0.5 : 1} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <div className="desktopOnly">{renderChart(combined, tickInterval, false)}</div>
+            <div className="mobileOnly">{renderChart(mobileCombined, mobileTickInterval, true)}</div>
           </>
         )}
       </Card>
@@ -2740,11 +2935,14 @@ function ComingSoon({ title, blurb }) {
 /* ───────────────────────  TRANSACTIONS  ─────────────────────── */
 /* Delete is an explicit tap-to-confirm (X → "Delete this transaction? Cancel/Delete") rather than a
    swipe gesture — swipe-to-reveal was hard to discover and its red reveal color showed at rest. */
-function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, setSearch, currency, presetFilter, onConsumePresetFilter }) {
+function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, setSearch, currency, presetFilter, onConsumePresetFilter, onQuickAdd }) {
   const [fHead, setFHead] = useState(presetFilter?.head || "all");
   const [fSub, setFSub] = useState(presetFilter?.sub || "all");
-  const [fType, setFType] = useState("all");
+  const [fType, setFType] = useState(presetFilter?.type || "all");
   const [confirmDeleteTxn, setConfirmDeleteTxn] = useState(null);
+  // Mobile-only search entry point — the topbar's search box is desktop-only, so this page needs
+  // its own way in to find a transaction by note text on a phone.
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Consume the incoming preset exactly once per mount so a later plain visit to this tab (without
   // clicking a subcategory again) isn't stuck re-applying a stale filter.
@@ -2777,9 +2975,23 @@ function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, s
     <main style={S.main}>
       <div className="mobileOnly pageTitleLg" style={{ color: T.text, marginBottom: 4 }}>Transactions</div>
       <div style={S.filterBar}>
+        <div className="mobileOnly">
+          {searchOpen ? (
+            <div style={{ ...S.searchWrap, width: "100%" }}>
+              <IconSearch />
+              <input className="field" autoFocus placeholder="Search transactions…"
+                value={search} onChange={(e) => setSearch(e.target.value)}
+                onBlur={() => { if (!search) setSearchOpen(false); }} style={S.searchInput} />
+            </div>
+          ) : (
+            <button aria-label="Search transactions" onClick={() => setSearchOpen(true)} style={S.iconTrigger}>
+              <IconSearch />
+            </button>
+          )}
+        </div>
         {search && (
           <div style={S.activeSearchPill}>
-            Searching “{search}” <button onClick={() => setSearch("")} aria-label="Clear search" style={S.activeSearchClear}>✕</button>
+            Searching “{search}” <button onClick={() => { setSearch(""); setSearchOpen(false); }} aria-label="Clear search" style={S.activeSearchClear}>✕</button>
           </div>
         )}
         <FilterPicker value={fHead} placeholderLabel="All categories"
@@ -2791,6 +3003,17 @@ function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, s
         <FilterPicker value={fType} placeholderLabel="All types"
           options={[{ value: "all", label: "All types" }, { value: "expense", label: "Expense" }, { value: "income", label: "Income" }]}
           onChange={setFType} />
+      </div>
+
+      <div className="mobileOnly" style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+        <button className="quickBtn" style={{ ...S.quickBtn, flex: 1 }} onClick={() => onQuickAdd("expense")}>
+          <span style={{ ...S.quickIcon, background: T.roseSoft, color: T.rose }}><IconPlus /></span>
+          Add expense
+        </button>
+        <button className="quickBtn" style={{ ...S.quickBtn, flex: 1 }} onClick={() => onQuickAdd("income")}>
+          <span style={{ ...S.quickIcon, background: T.mintSoft, color: T.darkSoft }}><IconPlus /></span>
+          Add income
+        </button>
       </div>
 
       <div style={S.resultLine}>
@@ -2805,9 +3028,16 @@ function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, s
         <div style={S.empty}>No transactions match these filters. Clear a filter or add a new expense.</div>
       )}
 
-      {visibleDateKeys.map((date) => (
+      {visibleDateKeys.map((date) => {
+        const dayTotal = byDate[date].reduce((s, t) => s + t.amount, 0);
+        return (
         <div key={date} style={{ marginBottom: 18 }}>
-          <div style={S.dateHead}>{dateLabel(date)}</div>
+          <div style={{ ...S.dateHead, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>{dateLabel(date)}</span>
+            <span style={{ color: dayTotal >= 0 ? T.darkSoft : T.rose, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+              {dayTotal >= 0 ? "+" : "−"}{money(Math.abs(dayTotal), currency)}
+            </span>
+          </div>
           {byDate[date].map((t) => (
             confirmDeleteTxn === t.id ? (
               <div key={t.id} className="txnRow" style={{ ...S.txnRow, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -2836,7 +3066,8 @@ function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, s
             )
           ))}
         </div>
-      ))}
+        );
+      })}
 
       {dateKeys.length > visibleDays && (
         <button className="linkBtn" style={{ ...S.linkBtn, display: "block", margin: "8px auto 0" }}
@@ -3122,7 +3353,7 @@ function Settings({
     const name = newWalletName.trim();
     if (!name) return;
     if (wallets.length >= MAX_WALLETS) { note(`Maximum of ${MAX_WALLETS} wallets reached — delete one to add another.`); return; }
-    persistWallets([...wallets, { id: uid(), name, color: "#4A90A4", startingBalance: parseFloat(newWalletBalance) || 0 }]);
+    persistWallets([...wallets, { id: uid(), name, color: SWATCHES[wallets.length % SWATCHES.length], startingBalance: parseFloat(newWalletBalance) || 0 }]);
     setNewWalletName(""); setNewWalletBalance("0");
   };
   const deleteWallet = (id) => {
@@ -3184,7 +3415,7 @@ function Settings({
         <div style={S.formCard}>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Log out</div>
           <div style={{ fontSize: 12.5, color: T.mut2, marginBottom: 18 }}>
-            Signed in as {profile.email || `${profile.firstName} ${profile.lastName}`.trim() || "You"}. Your data stays on this device.
+            Signed in as {profile.email || profile.name || "You"}. Your data stays on this device.
           </div>
           <button onClick={onLogout} style={{ ...S.primaryBtn, marginTop: 0, background: T.rose }}>Log out</button>
         </div>
@@ -3536,7 +3767,7 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
   const fileInputRef = useRef(null);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
-  const initials = `${form.firstName?.[0] || ""}${form.lastName?.[0] || ""}`.toUpperCase() || "Y";
+  const initials = (form.name || "Y").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   const pickFile = () => fileInputRef.current?.click();
   const onFile = (e) => {
@@ -3549,7 +3780,7 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
   };
 
   const save = () => {
-    persistProfile({ ...form, firstName: form.firstName.trim() || "You", lastName: form.lastName.trim(), email: form.email.trim() });
+    persistProfile({ ...form, name: form.name.trim() || "You", email: form.email.trim() });
     setSaved(true); setTimeout(() => setSaved(false), 1800);
   };
 
@@ -3576,16 +3807,8 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-          <label style={S.label}>First name</label>
-          <input className="field" value={form.firstName} onChange={(e) => set({ firstName: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
-        </div>
-        <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-          <label style={S.label}>Last name</label>
-          <input className="field" value={form.lastName} onChange={(e) => set({ lastName: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
-        </div>
-      </div>
+      <label style={S.label}>Name</label>
+      <input className="field" value={form.name} onChange={(e) => set({ name: e.target.value })} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 160px", minWidth: 0 }}>
@@ -4031,12 +4254,12 @@ function Chip({ active, onClick, children }) {
     <button onClick={onClick} className="chip" style={{ ...S.chip, ...(active ? S.chipActive : {}) }}>{children}</button>
   );
 }
-function MiniCard({ label, value, color }) {
+function MiniCard({ label, value, color, onClick }) {
   return (
-    <div className="heroMiniCard" style={S.heroMini}>
+    <button className="heroMiniCard" style={{ ...S.heroMini, ...(onClick ? { cursor: "pointer", textAlign: "left" } : {}) }} onClick={onClick} disabled={!onClick}>
       <div className="heroMiniLabel" style={{ fontSize: 10.5, letterSpacing: 1.3, color: "#BFE0C9", textTransform: "uppercase", fontWeight: 600, overflowWrap: "break-word", wordBreak: "break-word", whiteSpace: "nowrap" }}>{label}</div>
       <div className="heroMiniValue" style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, color: color || "#fff", fontVariantNumeric: "tabular-nums", marginTop: 4, fontWeight: 700, letterSpacing: -0.1 }}>{value}</div>
-    </div>
+    </button>
   );
 }
 function Card({ title, sub, filter, children }) {
@@ -4160,9 +4383,7 @@ body, .appShell { min-height: 100dvh; }
 .txnRow { background: ${T.surface}; transition: background .15s ease, transform .1s ease; }
 .txnRow:hover { background: ${T.surface2}; }
 .txnRow:active { transform: scale(0.99); }
-.txnRow .editHint, .txnRow .txnDeleteBtn { opacity: 0; transition: opacity .15s; }
-.txnRow:hover .editHint, .txnRow:hover .txnDeleteBtn { opacity: 1; }
-@media (max-width: 640px) { .txnRow .editHint, .txnRow .txnDeleteBtn { opacity: 1; } }
+.txnRow .editHint, .txnRow .txnDeleteBtn { opacity: 1; }
 
 .statCatHead { cursor: pointer; padding: 8px 10px; margin: 0 -10px; border-radius: 12px; transition: background .18s ease; }
 .statCatHead:hover { background: ${T.surface2}; }
@@ -4292,6 +4513,11 @@ body, .appShell { min-height: 100dvh; }
 .hubIcon svg { width: 22px; height: 22px; }
 .dashGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; }
 @media (max-width: 980px) { .dashGrid { grid-template-columns: minmax(0, 1fr); } }
+.dailyLimitBurnRow { display: flex; gap: 20px; align-items: stretch; }
+@media (max-width: 900px) {
+  .dailyLimitBurnRow { flex-direction: column; }
+  .dailyLimitBurnRow > div { flex: 1 1 auto !important; width: 100%; height: auto !important; }
+}
 @media (max-width: 720px) {
   .settingsLayout { flex-direction: column; gap: 14px !important; }
   .settingsLayout > div:first-child {
@@ -4341,6 +4567,7 @@ const S = {
     display: "flex", flexDirection: "column", gap: 14,
     maxWidth: 1180, margin: "0 auto", padding: "24px 32px 10px",
   },
+  topbarBrandRow: { display: "flex", alignItems: "center", marginBottom: 2 },
   topbarTitleRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" },
   pageTitle: { fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 700, color: T.text },
   pageSub: { fontSize: 12.5, color: T.mut, marginTop: 3 },
@@ -4529,6 +4756,11 @@ const S = {
     display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%",
     background: "none", border: "none", color: T.mut2, flexShrink: 0, cursor: "pointer", fontSize: 13,
   },
+  passwordToggle: {
+    position: "absolute", top: "50%", right: 4, transform: "translateY(-50%)", display: "flex",
+    alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8,
+    background: "none", border: "none", color: T.mut2, cursor: "pointer",
+  },
   confirmCancelBtn: {
     background: T.surface2, color: T.text, border: "none", borderRadius: 9, padding: "8px 14px",
     fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
@@ -4550,6 +4782,11 @@ const S = {
     marginTop: 20, background: T.dark, color: "#fff", width: "100%", boxSizing: "border-box",
     border: "none", borderRadius: 12, padding: "13px 0", fontSize: 14.5, fontWeight: 700,
     fontFamily: FONT_DISPLAY, cursor: "pointer", letterSpacing: 0.3,
+  },
+  googleBtn: {
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", boxSizing: "border-box",
+    background: T.surface, color: T.text, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 0",
+    fontSize: 14, fontWeight: 600, fontFamily: FONT_BODY, cursor: "pointer",
   },
   dangerGhost: {
     marginTop: 10, background: "transparent", border: `1px solid ${T.line}`, color: T.rose,
