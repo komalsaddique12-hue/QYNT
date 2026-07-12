@@ -1417,6 +1417,9 @@ function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWal
                 </button>
               )}
             </div>
+
+            {/* On mobile, the central Hub button already covers "add a transaction". */}
+            <button className="primaryBtn desktopOnly" onClick={onLog} style={S.logBtn}><IconPlus /> Log</button>
           </>
         )}
 
@@ -1428,8 +1431,6 @@ function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWal
             {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : "⚠ Couldn't save"}
           </div>
         )}
-        {/* On mobile, the central Hub button already covers "add a transaction". */}
-        <button className="primaryBtn desktopOnly" onClick={onLog} style={S.logBtn}><IconPlus /> Log</button>
       </div>
     </header>
   );
@@ -1575,6 +1576,20 @@ export default function ExpenseTracker() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Seed the initial history entry so the very first back-swipe has somewhere to land, then
+  // just mirror whatever tab the browser navigates back/forward to — this is what makes the
+  // phone's edge-swipe-back gesture move between app tabs instead of leaving/reloading the page.
+  useEffect(() => {
+    window.history.replaceState({ tab: "dashboard" }, "");
+    const onPopState = (e) => {
+      const k = e.state?.tab || "dashboard";
+      setTab(k);
+      if (k !== "add") setAddPreset(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
   useEffect(() => {
     if (!session) {
       setTxns(null); setCats(null); setWallets(null); setBudgets(null);
@@ -1699,7 +1714,14 @@ export default function ExpenseTracker() {
 
   const catColor = (head) => cats?.heads.find((h) => h.name === head)?.color || T.mut;
 
-  const goTab = (k) => { setTab(k); if (k !== "add") setAddPreset(null); };
+  // Every tab switch pushes a history entry so the phone's edge-swipe-back gesture (and the
+  // hardware/browser back button) actually navigates back through the app instead of doing
+  // nothing — there's no URL router here, so history.pushState is the lightest way to get that.
+  const goTab = (k) => {
+    setTab(k);
+    if (k !== "add") setAddPreset(null);
+    if (k !== tab) window.history.pushState({ tab: k }, "");
+  };
   const openAdd = (preset) => { setReturnTab(tab); setAddPreset(preset); goTab("add"); };
   const handleSearchChange = (v) => { setSearch(v); if (v && tab !== "transactions") goTab("transactions"); };
   const openProfileSettings = () => { setSettingsTab("profile"); goTab("settings"); };
@@ -3803,7 +3825,7 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
         <input ref={fileInputRef} type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
         <button onClick={pickFile} style={S.uploadAvatarBtn}><IconUpload /> Upload Avatar</button>
         {form.avatar && (
-          <button onClick={() => set({ avatar: "" })} title="Remove photo" style={S.deleteAvatarBtn}><IconTrash /></button>
+          <button onClick={() => set({ avatar: "" })} title="Remove photo" aria-label="Remove photo" style={S.deleteAvatarBtn}><IconTrash /></button>
         )}
       </div>
 
@@ -4326,6 +4348,9 @@ const FONT_BODY = "'Ubuntu','Segoe UI',sans-serif";
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap');
 * { box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}
 :root {
   --bg: #F3F8F4; --sidebar: #EAF6EC; --surface: #FFFFFF; --surface2: #F0F8F2; --line: #E3EEE5;
   --dark: #132A1E; --darkSoft: #1F4A34; --deepGreen: #1F4A34; --mint: #7FE6A0; --mintSoft: #E1F7E6;
@@ -4749,16 +4774,16 @@ const S = {
   txnAmt: { fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: -0.1 },
   editHint: { color: T.mut2, fontSize: 13, flexShrink: 0 },
   txnDeleteBtn: {
-    display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: "50%",
     background: "none", border: "none", color: T.mut2, flexShrink: 0, cursor: "pointer",
   },
   cardIconBtn: {
-    display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: "50%",
     background: "none", border: "none", color: T.mut2, flexShrink: 0, cursor: "pointer", fontSize: 13,
   },
   passwordToggle: {
-    position: "absolute", top: "50%", right: 4, transform: "translateY(-50%)", display: "flex",
-    alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8,
+    position: "absolute", top: "50%", right: 2, transform: "translateY(-50%)", display: "flex",
+    alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: 8,
     background: "none", border: "none", color: T.mut2, cursor: "pointer",
   },
   confirmCancelBtn: {
