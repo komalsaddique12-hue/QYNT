@@ -203,6 +203,7 @@ const BUDGET_KEY = "expense-tracker:budgets:v1";
 const SAVING_KEY = "expense-tracker:savings:v1";
 const PROFILE_KEY = "expense-tracker:profile:v1";
 const DAILY_LIMIT_KEY = "expense-tracker:dailylimit:v1";
+const ONBOARDED_KEY = "expense-tracker:onboarded:v1";
 const DEFAULT_PROFILE = {
   name: "You", email: "", color: "#2E9B8F", avatar: "",
   sex: "", dobDay: "", dobMonth: "", dobYear: "",
@@ -214,6 +215,10 @@ const THEME_OPTIONS = [
   { value: "system", label: "System" },
 ];
 const CURRENCY_OPTIONS = ["PKR", "USD", "EUR", "GBP", "AED", "SAR", "INR"];
+const CURRENCY_NAMES = {
+  PKR: "Pakistani Rupee", USD: "United States Dollar", EUR: "Euro", GBP: "British Pound",
+  AED: "United Arab Emirates Dirham", SAR: "Saudi Riyal", INR: "Indian Rupee",
+};
 const LANGUAGE_OPTIONS = ["English", "Urdu", "Arabic"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -1548,6 +1553,274 @@ function AuthScreen() {
   );
 }
 
+/* ───────────────────────  ONBOARDING SURVEY  ─────────────────────── */
+/* Shown on login until the user finishes (or explicitly skips) it — gated by a single
+   persisted "onboarded" flag. Screens 1–3 and 6 are pure copy/branding; screens 4, 5, and 7
+   are the only ones that touch real data (currency, an optional new category, an optional
+   first transaction). The four "example" tags on screen 5 are illustrative only — removing
+   them is cosmetic, not a real data change — so the app's real category taxonomy underneath
+   is untouched unless the user actually types a custom tag of their own. */
+const ONBOARDING_EXAMPLE_TAGS = ["Core Operations", "Technical Infra", "Self-Care", "Family Legacy"];
+
+function OnboardingHero({ kicker, title, blurb, bullets, cta, onNext, step, of }) {
+  return (
+    <div style={{ ...S.formCard, width: 420, background: `linear-gradient(150deg, ${T.dark}, ${T.deepGreen})`, color: "#EAF7EE", border: "none" }}>
+      {kicker && <div style={{ fontSize: 11, letterSpacing: 2.2, color: "#9FCBAE", fontWeight: 600, marginBottom: 6 }}>{kicker}</div>}
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 700, marginBottom: 10 }}>{title}</div>
+      {blurb && <div style={{ fontSize: 13.5, color: "#CFE9D6", lineHeight: 1.5, marginBottom: 16 }}>{blurb}</div>}
+      {bullets && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
+          {bullets.map((b, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13.5, color: "#EAF7EE" }}>
+              <span style={{ color: T.mint, marginTop: 1 }}>◆</span>
+              {typeof b === "string" ? <span>{b}</span> : (
+                <div><div style={{ fontWeight: 700 }}>{b.title}</div>{b.sub && <div style={{ color: "#9FCBAE", fontSize: 12.5, marginTop: 2 }}>{b.sub}</div>}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={onNext} style={{ ...S.primaryBtn, background: T.mint, color: T.dark, marginTop: 0 }}>{cta} →</button>
+      <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 18 }}>
+        {Array.from({ length: of }).map((_, i) => (
+          <span key={i} style={{ width: 6, height: 6, borderRadius: 3, background: i === step - 1 ? T.mint : "rgba(255,255,255,0.25)" }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OnboardingFlow({ profile, persistProfile, cats, persistCats, wallets, addTxn, onDone }) {
+  const [step, setStep] = useState(1);
+  const [currency, setCurrency] = useState(profile.currency || "PKR");
+  const [currencySearch, setCurrencySearch] = useState("");
+  const [exampleTags, setExampleTags] = useState(ONBOARDING_EXAMPLE_TAGS);
+  const [customTags, setCustomTags] = useState([]);
+  const [newTag, setNewTag] = useState("");
+  const [evtNote, setEvtNote] = useState("");
+  const [evtType, setEvtType] = useState("expense");
+  const [evtAmount, setEvtAmount] = useState("");
+  const [evtTag, setEvtTag] = useState("");
+
+  const next = () => setStep((s) => s + 1);
+
+  const filteredCurrencies = CURRENCY_OPTIONS.filter((c) =>
+    !currencySearch || c.toLowerCase().includes(currencySearch.toLowerCase()) || CURRENCY_NAMES[c].toLowerCase().includes(currencySearch.toLowerCase()));
+
+  const addCustomTag = () => {
+    const v = newTag.trim();
+    if (!v || customTags.includes(v) || cats.heads.some((h) => h.name.toLowerCase() === v.toLowerCase())) return;
+    setCustomTags((t) => [...t, v]);
+    setNewTag("");
+  };
+  const removeCustomTag = (v) => setCustomTags((t) => t.filter((x) => x !== v));
+
+  const deployLedger = async () => {
+    if (customTags.length > 0) {
+      const newHeads = customTags.map((name, i) => ({ name, color: SWATCHES[(cats.heads.length + i) % SWATCHES.length], kind: "expense" }));
+      const nextSubcats = { ...cats.subcats };
+      customTags.forEach((name) => { nextSubcats[name] = []; });
+      await persistCats({ heads: [...cats.heads, ...newHeads], subcats: nextSubcats });
+    }
+    next();
+  };
+
+  const allTagOptions = [...exampleTags, ...customTags.filter((t) => !exampleTags.includes(t)), ...cats.heads.map((h) => h.name)]
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+
+  const commitEvent = async () => {
+    const val = parseFloat(evtAmount);
+    if (!val || val <= 0) return;
+    const tag = evtTag || allTagOptions[0] || "Miscellaneous";
+    // A tag picked from the illustrative examples (or a brand-new custom one typed here) needs
+    // to actually exist as a category before the transaction can reference it.
+    let workingCats = cats;
+    if (!cats.heads.some((h) => h.name === tag)) {
+      workingCats = { heads: [...cats.heads, { name: tag, color: SWATCHES[cats.heads.length % SWATCHES.length], kind: "expense" }], subcats: { ...cats.subcats, [tag]: [] } };
+      await persistCats(workingCats);
+    }
+    addTxn({
+      id: uid(), date: iso(new Date()), head: tag, cat: tag,
+      note: evtNote.trim(), amount: evtType === "expense" ? -val : val,
+      walletId: wallets[0]?.id || "", savingSpaceId: null,
+    });
+    onDone();
+  };
+
+  if (step === 1) {
+    return (
+      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <OnboardingHero step={1} of={7} title="QYNT" cta="Create account" onNext={next}
+          bullets={[
+            { title: "Autonomous Engine", sub: "Live statistics and predictive metrics forecasting upcoming lifestyle costs far into the future." },
+            { title: "Family Wealth Architecture", sub: "Private, secure vaults engineered to protect and optimize long-term family assets." },
+            { title: "Cross-Border Intelligence", sub: "Unified statistical view managing your shifting capital pool seamlessly across AED, PKR, and SAR." },
+          ]} />
+      </div>
+    );
+  }
+  if (step === 2) {
+    return (
+      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <OnboardingHero step={2} of={7} kicker="VALUE PROP · INTELLIGENCE" title="Predictive Intelligence" cta="Get started" onNext={next}
+          blurb="Forward-looking logic that visualizes your capital 30 days into the future. Stop tracking what's gone; engineer what's next."
+          bullets={["Autonomous Cash Flow Forecasting", "Real-Time Safe-to-Spend Radar", "Live Mid-Market Currency Synchronization"]} />
+      </div>
+    );
+  }
+  if (step === 3) {
+    return (
+      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <OnboardingHero step={3} of={7} kicker="VALUE PROP · ECOSYSTEM" title="Unified Family Vaults" cta="Next" onNext={next}
+          blurb="Pool resources with your partner while maintaining absolute strategic privacy. Everyone aligns on big milestones without the friction."
+          bullets={["Instant Vault Synchronization", "Shared Cross-Border Goals", "Granular Access Architecture"]} />
+      </div>
+    );
+  }
+  if (step === 4) {
+    return (
+      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ ...S.formCard, width: 420 }}>
+          <div style={{ fontSize: 11, letterSpacing: 2, color: T.mut2, fontWeight: 700, marginBottom: 4 }}>STEP 1 OF 2</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Welcome to QYNT</div>
+          <div style={{ fontSize: 13, color: T.mut, marginBottom: 18 }}>Initialize your financial stack in two precise steps.</div>
+          <label style={S.label}>Select Primary Denomination</label>
+          <div style={{ fontSize: 12, color: T.mut2, marginBottom: 10 }}>
+            Choose the base currency for your master system view. All cross-border inflows will auto-convert to this metric using live mid-market rates.
+          </div>
+          <input className="field" placeholder="Search currency code… (e.g., AED, SAR, PKR)" value={currencySearch}
+            onChange={(e) => setCurrencySearch(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box", marginBottom: 10 }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 220, overflowY: "auto", marginBottom: 18 }}>
+            {filteredCurrencies.map((c) => (
+              <button key={c} onClick={() => setCurrency(c)} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: 10,
+                background: currency === c ? T.mintSoft : "none", border: "none", cursor: "pointer", textAlign: "left",
+              }}>
+                <span style={{ fontSize: 13.5, fontWeight: currency === c ? 700 : 500, color: T.text }}>{c} <span style={{ color: T.mut2, fontWeight: 400 }}>{CURRENCY_NAMES[c]}</span></span>
+                {currency === c && <span style={{ color: T.darkSoft }}><IconCheck /></span>}
+              </button>
+            ))}
+          </div>
+          <button className="primaryBtn" style={S.primaryBtn} onClick={async () => { await persistProfile({ ...profile, currency }); next(); }}>Initialize System</button>
+        </div>
+      </div>
+    );
+  }
+  if (step === 5) {
+    return (
+      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ ...S.formCard, width: 420 }}>
+          <div style={{ fontSize: 11, letterSpacing: 2, color: T.mut2, fontWeight: 700, marginBottom: 4 }}>STEP 2 OF 2</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Architect Your Ledger</div>
+          <div style={{ fontSize: 13, color: T.mut, marginBottom: 6 }}>
+            Categorize your active cash flows to power the AI forecasting engine. We have pre-configured core operational tracks for you.
+          </div>
+          <div style={{ fontSize: 12, color: T.mut2, marginBottom: 16, fontStyle: "italic" }}>
+            Examples: Core Operations, Technical Infrastructure, Self-Care, Family Legacy
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+            {exampleTags.map((t) => (
+              <span key={t} style={{ ...S.chip, ...S.chipActive, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {t}
+                <button onClick={() => setExampleTags((tags) => tags.filter((x) => x !== t))} aria-label={`Remove ${t}`}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, display: "flex" }}><IconX /></button>
+              </span>
+            ))}
+            {customTags.map((t) => (
+              <span key={t} style={{ ...S.chip, ...S.chipActive, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {t}
+                <button onClick={() => removeCustomTag(t)} aria-label={`Remove ${t}`}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, display: "flex" }}><IconX /></button>
+              </span>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input className="field" placeholder="Define a custom tag track…" value={newTag}
+              onChange={(e) => setNewTag(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCustomTag())}
+              style={{ ...S.input, flex: 1, boxSizing: "border-box" }} />
+            <button onClick={addCustomTag} aria-label="Add tag" style={{ ...S.iconTrigger, background: T.dark, color: "#fff", border: "none" }}><IconPlus /></button>
+          </div>
+          <button className="primaryBtn" style={S.primaryBtn} onClick={deployLedger}>Deploy Ledger Config</button>
+        </div>
+      </div>
+    );
+  }
+  if (step === 6) {
+    return (
+      <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ ...S.formCard, width: 440 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, marginBottom: 8 }}>System Primed</div>
+          <div style={{ fontSize: 13, color: T.mut, marginBottom: 18 }}>
+            To calibrate your Safe-to-Spend Radar, log your first active cash flow event.
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>What qualifies as a system event?</div>
+          <div style={{ fontSize: 12.5, color: T.mut, marginBottom: 18, lineHeight: 1.5 }}>
+            Any internal or external transaction that shifts your liquidity pool — a retainer invoice received, space overhead paid, or a wellness entry logged. Simply name it, input the amount, and assign a tracking tag.
+          </div>
+          <div style={{ fontSize: 11, letterSpacing: 1.5, color: T.mut2, fontWeight: 700, marginBottom: 8 }}>SYSTEM PREVIEW</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+            {[
+              ["Vercel Infrastructure Inflow", "+1,250 SAR", T.darkSoft],
+              ["Core Space Overhead", "−750.00 AED", T.rose],
+              ["Self-Care Treatment", "−485.00 AED", T.rose],
+              ["Daily Workspace Cafe", "−32.50 AED", T.rose],
+            ].map(([label, amt, color]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
+                <span style={{ color: T.mut }}>{label}</span>
+                <span style={{ color, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{amt}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 4 }}>Instant Calibration</div>
+          <div style={{ fontSize: 12.5, color: T.mut, marginBottom: 20, lineHeight: 1.5 }}>
+            Every logged metric updates your predictive dashboard immediately, adjusting your 30-day runway and net asset vectors.
+          </div>
+          <button className="primaryBtn" style={S.primaryBtn} onClick={next}>Begin Event Logging →</button>
+        </div>
+      </div>
+    );
+  }
+  // step 7
+  return (
+    <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ ...S.formCard, width: 420 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Initialize First Event</div>
+        <div style={{ fontSize: 13, color: T.mut, marginBottom: 18 }}>
+          Log an active transaction to instantly populate your predictive cash flow workspace.
+        </div>
+        <label style={S.label}>Event descriptor</label>
+        <input className="field" placeholder="e.g., Client Retainer, Technical Tooling, Workspace Session…" value={evtNote}
+          onChange={(e) => setEvtNote(e.target.value)} style={{ ...S.input, width: "100%", boxSizing: "border-box" }} />
+
+        <label style={S.label}>Transaction vector</label>
+        <div style={{ display: "flex", gap: 10, marginBottom: 4 }}>
+          <div style={S.segment}>
+            <button onClick={() => setEvtType("expense")} style={{ ...S.segBtn, ...(evtType === "expense" ? { ...S.segBtnActive, background: T.roseSoft, color: T.rose } : {}) }}>↗ Outflow (Spent)</button>
+            <button onClick={() => setEvtType("income")} style={{ ...S.segBtn, ...(evtType === "income" ? { ...S.segBtnActive, background: T.mintSoft, color: T.darkSoft } : {}) }}>↙ Inflow (Earned)</button>
+          </div>
+          <input className="field" type="number" inputMode="decimal" placeholder="0.00" value={evtAmount}
+            onChange={(e) => setEvtAmount(e.target.value)} style={{ ...S.input, width: 100, boxSizing: "border-box", fontFamily: FONT_DISPLAY, fontWeight: 700 }} />
+        </div>
+
+        <label style={{ ...S.label, marginTop: 14 }}>Assign aggregation tag</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+          {allTagOptions.map((t) => (
+            <Chip key={t} active={evtTag === t} onClick={() => setEvtTag(t)}>{t}</Chip>
+          ))}
+        </div>
+
+        <button className="primaryBtn" style={S.primaryBtn} onClick={commitEvent} disabled={!evtAmount || parseFloat(evtAmount) <= 0}>
+          + Commit Event to Ledger
+        </button>
+        {(!evtAmount || parseFloat(evtAmount) <= 0) && (
+          <div style={{ fontSize: 11.5, color: T.mut2, marginTop: 8, textAlign: "center" }}>Add at least one transaction token to view active dashboard simulation.</div>
+        )}
+        <button className="linkBtn" style={{ ...S.linkBtn, display: "block", margin: "10px auto 0" }} onClick={onDone}>Skip Initialization</button>
+      </div>
+    </div>
+  );
+}
+
 /* ───────────────────────  APP  ─────────────────────── */
 export default function ExpenseTracker() {
   const [session, setSession] = useState(undefined); // undefined = checking, null = signed out, object = signed in
@@ -1558,6 +1831,7 @@ export default function ExpenseTracker() {
   const [savings, setSavings] = useState(null);
   const [profile, setProfile] = useState(null);
   const [dailyLimit, setDailyLimit] = useState(null);
+  const [onboarded, setOnboarded] = useState(null);
   const [tab, setTab] = useState("dashboard");
   const [settingsTab, setSettingsTab] = useState("profile");
   const [scope, setScope] = useState(defaultScope());
@@ -1593,7 +1867,7 @@ export default function ExpenseTracker() {
   useEffect(() => {
     if (!session) {
       setTxns(null); setCats(null); setWallets(null); setBudgets(null);
-      setSavings(null); setProfile(null); setDailyLimit(null);
+      setSavings(null); setProfile(null); setDailyLimit(null); setOnboarded(null);
       return;
     }
     (async () => {
@@ -1608,6 +1882,7 @@ export default function ExpenseTracker() {
         [DAILY_LIMIT_KEY, 0],
         [TXN_KEY, []],
         [CAT_KEY, DEFAULT_CATS],
+        [ONBOARDED_KEY, false],
       ];
       // A failed fetch must never fall through to defaults (that would silently overwrite real
       // data — see loadAllData's error handling). Retry once after a beat, then leave the
@@ -1631,6 +1906,7 @@ export default function ExpenseTracker() {
       setDailyLimit(all[DAILY_LIMIT_KEY]);
       setTxns(all[TXN_KEY]);
       setCats(all[CAT_KEY]);
+      setOnboarded(all[ONBOARDED_KEY]);
     })();
   }, [session]);
 
@@ -1698,6 +1974,10 @@ export default function ExpenseTracker() {
     try { await saveKey(session.user.id, DAILY_LIMIT_KEY, next); flash("saved"); }
     catch { flash("error"); }
   };
+  const completeOnboarding = async () => {
+    setOnboarded(true);
+    try { await saveKey(session.user.id, ONBOARDED_KEY, true); } catch { /* they'll just see onboarding again next login */ }
+  };
   // Deletion guards mirror Settings' rules exactly, since these are the same underlying records —
   // just reachable from their own dedicated pages now, not only from Settings.
   const deleteBudgetById = (id) => { persistBudgets(budgets.filter((b) => b.id !== id)); return null; };
@@ -1746,11 +2026,25 @@ export default function ExpenseTracker() {
     return <AuthScreen />;
   }
 
-  if (!txns || !cats || !wallets || !budgets || !savings || !profile || dailyLimit == null) {
+  if (!txns || !cats || !wallets || !budgets || !savings || !profile || dailyLimit == null || onboarded == null) {
     return (
       <div style={S.page}>
         <style>{CSS}</style>
         <SkeletonDashboard />
+      </div>
+    );
+  }
+
+  if (!onboarded) {
+    return (
+      <div style={S.page}>
+        <style>{CSS}</style>
+        <OnboardingFlow
+          profile={profile} persistProfile={persistProfile}
+          cats={cats} persistCats={persistCats}
+          wallets={wallets} addTxn={addTxn}
+          onDone={completeOnboarding}
+        />
       </div>
     );
   }
