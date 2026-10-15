@@ -1,3 +1,5 @@
+
+import AIAdvisor from "./AIAdvisor.jsx";
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -23,9 +25,6 @@ function useAppliedTheme() {
 }
 
 /* ─────────────────────────  THEME  ───────────────────────── */
-/* Every value is a CSS custom property reference, not a literal hex — the actual light/dark values
-   live in the stylesheet (see THEME_CSS below) so the whole app repaints on a data-theme flip
-   without any component needing to know which theme is active. */
 const T = {
   bg: "var(--bg)", sidebar: "var(--sidebar)", surface: "var(--surface)", surface2: "var(--surface2)", line: "var(--line)",
   dark: "var(--dark)", darkSoft: "var(--darkSoft)", deepGreen: "var(--deepGreen)", mint: "var(--mint)", mintSoft: "var(--mintSoft)",
@@ -119,8 +118,6 @@ const CATEGORY_MIGRATION = {
   },
   Income: { head: "Income", subs: {} },
 };
-/* Resolves one old (head, subcat) pair to its new location, or null if the head isn't a recognized
-   pre-restructure default (i.e. it's something the user added themselves — left untouched). */
 function resolveCategoryMigration(oldHead, oldSub) {
   const rule = CATEGORY_MIGRATION[oldHead];
   if (!rule) return null;
@@ -128,8 +125,6 @@ function resolveCategoryMigration(oldHead, oldSub) {
   if (!subRule) return { head: rule.head, sub: oldSub };
   return typeof subRule === "string" ? { head: rule.head, sub: subRule } : { head: subRule.head, sub: subRule.sub };
 }
-/* Rebuilds cats/txns/budgets against the new canonical taxonomy. Custom heads/subcats the migration
-   table doesn't recognize are preserved as-is rather than dropped. */
 function migrateToNewCategoryStructure(cats, txns, budgets) {
   const heads = DEFAULT_CATS.heads.map((h) => ({ ...h }));
   const subcats = {};
@@ -171,19 +166,16 @@ const monthLabel = (m) => {
   const [y, mo] = m.split("-");
   return new Date(+y, +mo - 1, 1).toLocaleString("en", { month: "short" }) + " " + y;
 };
-/* "Jan 01, 2026" — the single date format used everywhere in the app. */
 const dateLabel = (dateStr) => new Date(dateStr + "T00:00").toLocaleDateString("en", { month: "short", day: "2-digit", year: "numeric" });
-/* Short "Jan 01" form for chart axis ticks, same month/day styling without the year. */
 const dayAxisLabel = (dateStr) => new Date(dateStr + "T00:00").toLocaleDateString("en", { month: "short", day: "2-digit" });
 const iso = (d) => d.toISOString().slice(0, 10);
 const weekBounds = (dateStr) => {
   const d = new Date(dateStr + "T00:00");
-  const day = (d.getDay() + 6) % 7; // Monday = 0
+  const day = (d.getDay() + 6) % 7;
   const mon = new Date(d); mon.setDate(d.getDate() - day);
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
   return [iso(mon), iso(sun)];
 };
-/* Monday-first calendar grid for a given (year, month0-11) — null cells pad the leading/trailing week. */
 function buildMonthGrid(year, month) {
   const first = new Date(year, month, 1);
   const startOffset = (first.getDay() + 6) % 7;
@@ -222,18 +214,10 @@ const CURRENCY_NAMES = {
 const LANGUAGE_OPTIONS = ["English", "Urdu", "Arabic"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/* Per-user JSON blob storage in Supabase, keyed the same way the old window.storage keys were. */
 async function saveKey(userId, key, value) {
   const { error } = await supabase.from("app_data").upsert({ user_id: userId, key, value, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
-/* Loads every key for this user in a single round trip instead of one request per key — the
-   post-login load used to fire 7 separate requests (wallets/budgets/savings/profile/daily
-   limit/txns/cats), each paying its own latency even though they ran in parallel. Missing keys
-   (first-ever login) are backfilled with their fallback value in the background so the initial
-   render isn't blocked waiting on those write-backs.
-   IMPORTANT: a query error must never be treated as "no rows" — doing so would make every key
-   look "missing" and backfill-overwrite real data with blank defaults on a transient failure. */
 async function loadAllData(userId, keysWithFallback) {
   const { data, error } = await supabase.from("app_data").select("key,value").eq("user_id", userId);
   if (error) throw error;
@@ -258,7 +242,6 @@ const MAX_SAVINGS = 2;
 const DEFAULT_WALLET_ID = "wallet-main";
 const DEFAULT_WALLETS = [{ id: DEFAULT_WALLET_ID, name: "Main Wallet", color: T.mint, startingBalance: 0 }];
 
-/* ───────────  DATE SCOPE (all / year / month / week / custom)  ─────────── */
 const defaultScope = () => ({ mode: "all", year: "", month: "", week: "", from: "", to: "" });
 
 function scopeRange(s) {
@@ -268,7 +251,6 @@ function scopeRange(s) {
   if (s.mode === "custom" && (s.from || s.to)) return [s.from || "0000-01-01", s.to || "9999-12-31"];
   return null;
 }
-/* Budgets are always a calendar-month concept — first to last day of the current month, regardless of the dashboard date filter. */
 function currentMonthRange() {
   const now = new Date();
   return [iso(new Date(now.getFullYear(), now.getMonth(), 1)), iso(new Date(now.getFullYear(), now.getMonth() + 1, 0))];
@@ -284,8 +266,6 @@ function scopeLabel(s) {
   if (s.mode === "custom" && (s.from || s.to)) return `${s.from ? dateLabel(s.from) : "…"} → ${s.to ? dateLabel(s.to) : "…"}`;
   return "All time";
 }
-
-/* All ISO day strings between two ISO dates (inclusive). Caller caps the span to avoid runaway loops. */
 function daysInRange(fromISO, toISO) {
   const out = [];
   const d = new Date(fromISO + "T00:00");
@@ -293,7 +273,6 @@ function daysInRange(fromISO, toISO) {
   while (d <= end) { out.push(iso(d)); d.setDate(d.getDate() + 1); }
   return out;
 }
-/* All "YYYY-MM" month keys between two ISO dates (inclusive). */
 function monthsInRange(fromISO, toISO) {
   const out = [];
   let y = +fromISO.slice(0, 4), m = +fromISO.slice(5, 7);
@@ -341,7 +320,6 @@ function downloadText(text, filename, mime) {
   downloadBlob(new Blob([text], { type: mime }), filename);
 }
 
-/* ─────  Minimal .xlsx (Open XML) writer — a real spreadsheet, not an HTML table wearing an .xls extension  ───── */
 function xmlEscape(v) {
   return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -414,7 +392,6 @@ function crc32(bytes) {
   for (let i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
-/* Zero-compression (STORE method) ZIP — all a .xlsx needs to be is a valid zip container. */
 function buildZip(files) {
   const encoder = new TextEncoder();
   const now = new Date();
@@ -490,7 +467,6 @@ function rowsToXLSXBlob(rows) {
   return buildZip(files);
 }
 
-/* ─────────────  DATA IMPORT (CSV / XLSX)  ───────────── */
 function parseCSVText(text) {
   const rows = [];
   let row = [], field = "", inQuotes = false;
@@ -502,7 +478,7 @@ function parseCSVText(text) {
     } else if (c === '"') inQuotes = true;
     else if (c === ",") { row.push(field); field = ""; }
     else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
-    else if (c === "\r") { /* CRLF — the following \n closes the row */ }
+    else if (c === "\r") { }
     else field += c;
   }
   if (field.length || row.length) { row.push(field); rows.push(row); }
@@ -519,7 +495,6 @@ function rowsToObjects(rows) {
       return obj;
     });
 }
-/* Excel/Sheets date serial (days since 1899-12-30) → ISO date string. */
 function excelSerialToISO(n) {
   return iso(new Date(Math.round((n - 25569) * 86400 * 1000)));
 }
@@ -531,7 +506,6 @@ async function inflateRawDeflate(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
-/* Reads the central directory of a zip so individual parts (by name) can be pulled out on demand. */
 function readZipEntries(buf) {
   const dv = new DataView(buf);
   const len = buf.byteLength;
@@ -626,16 +600,11 @@ async function parseImportFile(file) {
   if (name.endsWith(".xlsx")) return parseXLSXFile(file);
   throw new Error("Unsupported file type — please choose a .csv or .xlsx file.");
 }
-/* Turns parsed sheet rows (Date/Type/Category/Subcategory/Note/Wallet/Amount/Currency) into transaction
-   objects, creating any categories/subcategories the sheet references that don't exist yet. Wallet names
-   that don't match fall back to the first wallet rather than being silently dropped. */
 function buildTxnsFromImportRows(rows, cats, wallets) {
   const heads = [...cats.heads];
   const subcats = { ...cats.subcats };
   const findHead = (n) => heads.find((h) => h.name.toLowerCase() === n.toLowerCase());
   const findWallet = (n) => wallets.find((w) => w.name.toLowerCase() === n.toLowerCase());
-  /* A sheet value that isn't a known head name might still be a known subcategory of one — in that
-     case the row belongs under that subcategory's existing head, not a brand-new main category. */
   const findHeadOwningSubcat = (n) => {
     if (!n) return null;
     const lower = n.toLowerCase();
@@ -651,7 +620,7 @@ function buildTxnsFromImportRows(rows, cats, wallets) {
     if (!dateRaw || !amountRaw) { errors.push(`Row ${line}: missing date or amount.`); return; }
 
     let date = dateRaw;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) { /* already the exact format we want — skip any Date() round trip to avoid timezone drift */ }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) { }
     else if (/^\d+(\.\d+)?$/.test(dateRaw)) date = excelSerialToISO(parseFloat(dateRaw));
     else { const d = new Date(dateRaw); if (!isNaN(d)) date = iso(d); }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push(`Row ${line}: unrecognized date "${dateRaw}".`); return; }
@@ -665,10 +634,6 @@ function buildTxnsFromImportRows(rows, cats, wallets) {
     const categoryRaw = String(r.Category ?? "").trim();
     const subRawInput = String(r.Subcategory ?? "").trim();
 
-    // 1. Exact match on an existing main category. 2. The value is actually a known subcategory
-    // somewhere — reuse its head instead of minting a new main category. 3. Same two checks against
-    // the Subcategory column, in case Category was blank or unrecognized. Only after all of that
-    // comes up empty do we create a brand-new main category.
     let head = (categoryRaw && findHead(categoryRaw))
       || (categoryRaw && findHeadOwningSubcat(categoryRaw))
       || (subRawInput && findHead(subRawInput))
@@ -700,10 +665,6 @@ function buildTxnsFromImportRows(rows, cats, wallets) {
   return { txns, errors, newHeads, newSubcats, defaultedWallets, cats: { heads, subcats } };
 }
 
-/* One-time cleanup for data that predates the import fix above: a main category whose name is
-   actually a subcategory of some other main category gets merged into that other category (its
-   transactions and budgets move over, and the old main category is removed). Returns null if
-   nothing needs merging. */
 function findMiscategorizedMerges(cats) {
   const { heads, subcats } = cats;
   const merges = [];
@@ -725,8 +686,6 @@ function applyMiscategorizedMerges(merges, cats, txns, budgets) {
     return to ? { ...t, head: to, cat: t.head } : t;
   });
 
-  // A budget already sitting on the surviving head wins; a merged-in budget only fills the gap
-  // if the surviving head doesn't already have one (rather than an arbitrary array-order pick).
   const seenBudgetHeads = new Set();
   const newBudgets = [];
   budgets.forEach((b) => { if (!mergeMap.has(b.head.toLowerCase())) { newBudgets.push(b); seenBudgetHeads.add(b.head); } });
@@ -740,7 +699,6 @@ function applyMiscategorizedMerges(merges, cats, txns, budgets) {
   return { cats: { heads, subcats }, txns: newTxns, budgets: newBudgets };
 }
 
-/* Compares a bounded scope range against the equal-length period immediately before it. */
 function prevPeriodChange(txns, scope, selector) {
   const range = scopeRange(scope);
   if (!range) return null;
@@ -1150,6 +1108,7 @@ function IconGoogle() {
     </svg>
   );
 }
+
 /* ───────────────────────  SIDEBAR & TOPBAR  ─────────────────────── */
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", Icon: IconDashboard },
@@ -1184,10 +1143,6 @@ function Sidebar({ tab, setTab, currency }) {
   );
 }
 
-/* ─────────────  MOBILE: floating bottom nav + FAB  ───────────── */
-/* Single round nav button, bottom-center — tap opens the Hub (all destinations + quick add),
-   tap again (now showing an ✕) closes it. Replaces the old multi-item pill nav: one predictable
-   control instead of a bar of icons, matching the reference "Hub" pattern. */
 function NavHubButton({ open, onToggle }) {
   return (
     <button className="hubNavBtn" onClick={onToggle} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open}>
@@ -1199,7 +1154,6 @@ function NavHubButton({ open, onToggle }) {
   );
 }
 
-/* ─────────────  MOBILE: bottom sheet shell  ───────────── */
 function Sheet({ onClose, children }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -1216,8 +1170,6 @@ function Sheet({ onClose, children }) {
   );
 }
 
-/* A tappable field that opens a bottom sheet list of options instead of a native <select> —
-   bigger touch targets and a picker that matches the rest of the app's sheet language. */
 function PickerField({ label, value, options, onChange }) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
@@ -1251,8 +1203,6 @@ function PickerField({ label, value, options, onChange }) {
   );
 }
 
-/* Compact branded filter trigger — same trigger-button + bottom-sheet-list pattern as PickerField
-   and the date-range picker, instead of a native OS <select> which looks off-brand and inconsistent. */
 function FilterPicker({ value, options, onChange, placeholderLabel, disabled, triggerIcon, triggerStyle }) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
@@ -1285,10 +1235,6 @@ function FilterPicker({ value, options, onChange, placeholderLabel, disabled, tr
   );
 }
 
-/* ─────────────  MOBILE: unified Hub (all navigation + quick add, one sheet)  ───────────── */
-/* Every tile shares one neutral icon treatment (no per-tile color coding) so the grid reads as
-   uniform; only the active tab (filled dark) stands out. Home leads the grid; quick-add actions
-   come right after it since logging a transaction is the single most frequent action. */
 const NAV_HUB_ITEMS = [
   { key: "dashboard", label: "Home", Icon: IconDashboard },
   { key: "add-expense", label: "Add Expense", Icon: IconArrowUp, isAction: true },
@@ -1358,14 +1304,9 @@ function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWal
 
   return (
     <header className="appTopbar" style={S.topbar}>
-      {/* Sidebar (with the QYNT logo) is hidden on phone, so give mobile its own slim brand row
-          up top instead — desktop already gets the logo from the sidebar. */}
       <div className="mobileOnly" style={S.topbarBrandRow}>
         <img src={theme === "dark" ? qyntLogoDark : qyntLogo} alt="QYNT" style={{ height: 22, width: "auto", display: "block" }} />
       </div>
-      {/* Title and account trigger share a row of their own so the avatar always stays pinned to
-          the top-right corner — otherwise, once the filter/search controls below wrap onto a
-          second line on narrow phones, the avatar would wrap down with them instead of staying put. */}
       <div className="topbarTitleRow" style={S.topbarTitleRow}>
         <div>
           <div style={S.pageTitle}>{PAGE_COPY[tab]}</div>
@@ -1405,9 +1346,6 @@ function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWal
           <>
             <StatusBar scope={scope} setScope={setScope} wallets={wallets} walletFilter={walletFilter} setWalletFilter={setWalletFilter} />
 
-            {/* Desktop only — removed from the mobile topbar entirely to cut clutter. Collapsed to an
-                icon by default so it doesn't take up permanent header width; clicking it reveals the
-                actual input. */}
             <div className="desktopOnly">
               {searchOpen ? (
                 <div style={S.searchWrap}>
@@ -1423,14 +1361,10 @@ function Topbar({ tab, saveState, scope, setScope, wallets, walletFilter, setWal
               )}
             </div>
 
-            {/* On mobile, the central Hub button already covers "add a transaction". */}
             <button className="primaryBtn desktopOnly" onClick={onLog} style={S.logBtn}><IconPlus /> Log</button>
           </>
         )}
 
-        {/* Kept outside showControls — this is the only feedback the user gets that a write (a
-            delete, a rename, a color change…) actually persisted, so it needs to survive on every
-            page that can mutate data, not just the three pages with the full filter bar. */}
         {saveState && (
           <div style={{ ...S.savePill, ...(saveState === "error" ? S.savePillError : {}) }}>
             {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : "⚠ Couldn't save"}
@@ -1446,7 +1380,7 @@ const STATUS_BAR_TABS = new Set(["dashboard", "transactions", "statistics"]);
 /* ───────────────────────  AUTH  ─────────────────────── */
 function AuthScreen() {
   const theme = useAppliedTheme();
-  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1554,12 +1488,6 @@ function AuthScreen() {
 }
 
 /* ───────────────────────  ONBOARDING SURVEY  ─────────────────────── */
-/* Shown on login until the user finishes (or explicitly skips) it — gated by a single
-   persisted "onboarded" flag. Screens 1–3 and 6 are pure copy/branding; screens 4, 5, and 7
-   are the only ones that touch real data (currency, an optional new category, an optional
-   first transaction). The four "example" tags on screen 5 are illustrative only — removing
-   them is cosmetic, not a real data change — so the app's real category taxonomy underneath
-   is untouched unless the user actually types a custom tag of their own. */
 const ONBOARDING_EXAMPLE_TAGS = ["Core Operations", "Technical Infra", "Self-Care", "Family Legacy"];
 
 function OnboardingHero({ kicker, title, blurb, bullets, cta, onNext, step, of }) {
@@ -1632,8 +1560,6 @@ function OnboardingFlow({ profile, persistProfile, cats, persistCats, wallets, a
     const val = parseFloat(evtAmount);
     if (!val || val <= 0) return;
     const tag = evtTag || allTagOptions[0] || "Miscellaneous";
-    // A tag picked from the illustrative examples (or a brand-new custom one typed here) needs
-    // to actually exist as a category before the transaction can reference it.
     let workingCats = cats;
     if (!cats.heads.some((h) => h.name === tag)) {
       workingCats = { heads: [...cats.heads, { name: tag, color: SWATCHES[cats.heads.length % SWATCHES.length], kind: "expense" }], subcats: { ...cats.subcats, [tag]: [] } };
@@ -1780,7 +1706,6 @@ function OnboardingFlow({ profile, persistProfile, cats, persistCats, wallets, a
       </div>
     );
   }
-  // step 7
   return (
     <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ ...S.formCard, width: 420 }}>
@@ -1820,10 +1745,9 @@ function OnboardingFlow({ profile, persistProfile, cats, persistCats, wallets, a
     </div>
   );
 }
-
 /* ───────────────────────  APP  ─────────────────────── */
 export default function ExpenseTracker() {
-  const [session, setSession] = useState(undefined); // undefined = checking, null = signed out, object = signed in
+  const [session, setSession] = useState(undefined);
   const [txns, setTxns] = useState(null);
   const [cats, setCats] = useState(null);
   const [wallets, setWallets] = useState(null);
@@ -1837,12 +1761,12 @@ export default function ExpenseTracker() {
   const [scope, setScope] = useState(defaultScope());
   const [walletFilter, setWalletFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [txnFilter, setTxnFilter] = useState(null); // { head, sub } | null — consumed once by Transactions on mount
+  const [txnFilter, setTxnFilter] = useState(null);
   const [hubOpen, setHubOpen] = useState(false);
   const [saveState, setSaveState] = useState("");
-  const [editing, setEditing] = useState(null); // txn being edited
-  const [addPreset, setAddPreset] = useState(null); // "income" | "expense" | null
-  const [returnTab, setReturnTab] = useState("dashboard"); // where to go back to after the Add sheet closes
+  const [editing, setEditing] = useState(null);
+  const [addPreset, setAddPreset] = useState(null);
+  const [returnTab, setReturnTab] = useState("dashboard");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -1850,9 +1774,6 @@ export default function ExpenseTracker() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Seed the initial history entry so the very first back-swipe has somewhere to land, then
-  // just mirror whatever tab the browser navigates back/forward to — this is what makes the
-  // phone's edge-swipe-back gesture move between app tabs instead of leaving/reloading the page.
   useEffect(() => {
     window.history.replaceState({ tab: "dashboard" }, "");
     const onPopState = (e) => {
@@ -1884,9 +1805,6 @@ export default function ExpenseTracker() {
         [CAT_KEY, DEFAULT_CATS],
         [ONBOARDED_KEY, false],
       ];
-      // A failed fetch must never fall through to defaults (that would silently overwrite real
-      // data — see loadAllData's error handling). Retry once after a beat, then leave the
-      // skeleton loader up rather than risk a data-losing write.
       let all;
       try {
         all = await loadAllData(uid_, keys);
@@ -1896,8 +1814,6 @@ export default function ExpenseTracker() {
         catch (e2) { console.error("Failed to load account data after retry:", e2); return; }
       }
       const loadedProfile = all[PROFILE_KEY];
-      // Migrate older accounts that stored separate firstName/lastName fields onto the single
-      // "name" field, without dropping any of the rest of their saved profile.
       const migratedName = loadedProfile.name || `${loadedProfile.firstName || ""} ${loadedProfile.lastName || ""}`.trim() || undefined;
       setWallets(all[WALLET_KEY]);
       setBudgets(all[BUDGET_KEY]);
@@ -1910,17 +1826,12 @@ export default function ExpenseTracker() {
     })();
   }, [session]);
 
-  // If the wallet currently applied as a filter gets deleted (from Settings), fall back to "all"
-  // rather than leaving the app silently filtered down to zero wallets/transactions with no way
-  // to notice why, since the Wallets page no longer surfaces its own filter control to reset it.
   useEffect(() => {
     if (wallets && walletFilter !== "all" && !wallets.some((w) => w.id === walletFilter)) {
       setWalletFilter("all");
     }
   }, [wallets, walletFilter]);
 
-  // Apply the chosen theme to the whole document. "system" tracks the OS setting live, including
-  // if the user flips their OS theme while the app is already open.
   useEffect(() => {
     const mode = profile?.theme || "system";
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1976,10 +1887,8 @@ export default function ExpenseTracker() {
   };
   const completeOnboarding = async () => {
     setOnboarded(true);
-    try { await saveKey(session.user.id, ONBOARDED_KEY, true); } catch { /* they'll just see onboarding again next login */ }
+    try { await saveKey(session.user.id, ONBOARDED_KEY, true); } catch { }
   };
-  // Deletion guards mirror Settings' rules exactly, since these are the same underlying records —
-  // just reachable from their own dedicated pages now, not only from Settings.
   const deleteBudgetById = (id) => { persistBudgets(budgets.filter((b) => b.id !== id)); return null; };
   const deleteSavingById = (id) => {
     const usedCount = txns.filter((t) => t.savingSpaceId === id).length;
@@ -1994,9 +1903,6 @@ export default function ExpenseTracker() {
 
   const catColor = (head) => cats?.heads.find((h) => h.name === head)?.color || T.mut;
 
-  // Every tab switch pushes a history entry so the phone's edge-swipe-back gesture (and the
-  // hardware/browser back button) actually navigates back through the app instead of doing
-  // nothing — there's no URL router here, so history.pushState is the lightest way to get that.
   const goTab = (k) => {
     setTab(k);
     if (k !== "add") setAddPreset(null);
@@ -2091,8 +1997,6 @@ export default function ExpenseTracker() {
             settingsTab={settingsTab} setSettingsTab={setSettingsTab}
             onLogout={() => supabase.auth.signOut()} onResetData={resetAllData} />
         )}
-        {/* Unfiltered on purpose — "My accounts" is the one page where seeing every wallet is the
-            whole point, and it has no filter control of its own to reset walletFilter from. */}
         {tab === "wallets" && <Wallets txns={txns} wallets={wallets} scope={scope} currency={profile.currency}
           onAddWallet={() => { setSettingsTab("wallets"); goTab("settings"); }} />}
         {tab === "budgets" && <Budgets txns={txns} budgets={budgets} catColor={catColor} currency={profile.currency}
@@ -2107,9 +2011,14 @@ export default function ExpenseTracker() {
         {tab === "intelligence" && (
           <ComingSoon title="Intelligence" blurb="Automatic insights into your spending patterns and anomalies." />
         )}
-        {tab === "advisor" && (
-          <ComingSoon title="AI advisor" blurb="A personal assistant that helps you plan around your real numbers." />
-        )}
+       {tab === "advisor" && (
+  <AIAdvisor
+    txns={filteredTxns}
+    budgets={budgets}
+    currency={profile.currency}
+    scope={scope}
+  />
+)}
       </div>
 
       {editing && (
@@ -2141,7 +2050,7 @@ function Dashboard({ txns, catColor, cats, setTab, onQuickAdd, scope, savings, d
 
   const incomeChange = prevPeriodChange(txns, scope, (t) => (t.amount > 0 ? t.amount : 0));
   const expenseChangeRaw = prevPeriodChange(txns, scope, (t) => (t.amount < 0 ? -t.amount : 0));
-  const expenseChange = expenseChangeRaw == null ? null : -expenseChangeRaw; // spending less shows as positive
+  const expenseChange = expenseChangeRaw == null ? null : -expenseChangeRaw;
   const netChange = prevPeriodChange(txns, scope, (t) => t.amount);
 
   const recentTx = [...scopedTxns].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
@@ -2154,7 +2063,6 @@ function Dashboard({ txns, catColor, cats, setTab, onQuickAdd, scope, savings, d
       <div className="desktopOnly" style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 18 }}>
         Welcome back, {name || "there"} 👋
       </div>
-      {/* hero + quick actions */}
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 20 }}>
         <section className="heroSection" style={S.hero}>
           <div style={S.kicker}>NET FLOW · {scopeLabel(scope).toUpperCase()}</div>
@@ -2197,7 +2105,6 @@ function Dashboard({ txns, catColor, cats, setTab, onQuickAdd, scope, savings, d
         </section>
       </div>
 
-      {/* stat row */}
       <div className="statRow" style={S.statRow}>
         <StatCard label="Current Wallet Balance" value={money(walletBalance, currency)} valueColor={walletBalance >= 0 ? T.darkSoft : T.rose} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconWallet} />
         <StatCard label="Total Period Change" value={money(net, currency)} valueColor={net >= 0 ? T.darkSoft : T.rose} change={netChange} iconBg={T.goldSoft} iconColor={T.gold} icon={IconScale} />
@@ -2205,25 +2112,17 @@ function Dashboard({ txns, catColor, cats, setTab, onQuickAdd, scope, savings, d
         <StatCard label="Total Period Income" value={money(income, currency)} change={incomeChange} iconBg={T.mintSoft} iconColor={T.darkSoft} icon={IconArrowDown} />
       </div>
 
-      {/* cashflow + statistic */}
       <div className="dashGrid" style={{ marginBottom: 20 }}>
         <CashflowCard txns={scopedTxns} currency={currency} scope={scope} />
-
         <StatisticCard scopedTxns={scopedTxns} cats={cats} income={income} expense={expense} currency={currency}
           onViewSubcategory={onViewSubcategory} limit={5} onViewMore={() => setTab("statistics")} />
       </div>
 
-      {/* saving plans + finance score */}
       <div className="dashGrid" style={{ marginBottom: 20 }}>
         <SavingPlansCard txns={txns} savings={savings} onAddPlans={() => openSettings("savings")} currency={currency} />
         <FinanceScoreCard txns={txns} budgets={budgets} scope={scope} />
       </div>
 
-      {/* Daily limit doesn't need much width, but the full-year heatmap (53 weeks) needs most of
-          the row — giving it an even grid split (like a plain 2-column grid) squeezed it narrower
-          than its content, forcing an unwanted horizontal scroll. A fixed-width limit card plus a
-          flexible heatmap column avoids that while still sitting side by side on desktop; mobile
-          stacks them like every other mobileOnly/desktopOnly pair in this file. */}
       <div className="dailyLimitBurnRow" style={{ marginBottom: 20 }}>
         <div style={{ flex: "0 0 220px", minWidth: 0 }}>
           <DailyLimitCard txns={txns} dailyLimit={dailyLimit} onSetLimit={() => openSettings("limit")} currency={currency} />
@@ -2241,7 +2140,6 @@ function Dashboard({ txns, catColor, cats, setTab, onQuickAdd, scope, savings, d
   );
 }
 
-/* ─────────────  CONCENTRIC RINGS (one ring per top category, sized/thin like an activity ring)  ───────────── */
 function ConcentricRings({ data, size = 180 }) {
   const cx = size / 2, cy = size / 2;
   const strokeWidth = Math.max(7, Math.floor(size / 18));
@@ -2266,9 +2164,6 @@ function ConcentricRings({ data, size = 180 }) {
   );
 }
 
-/* ─────────────  STATISTIC CARD (income/expense breakdown + subcategory drill-down)  ─────────────
-   Shared by the Dashboard (capped to `limit` categories, with a "View more" link) and the full
-   Statistics page (no limit). */
 function StatisticCard({ scopedTxns, cats, income, expense, currency, onViewSubcategory, limit, onViewMore, title = "Statistic", showChart = true }) {
   const [statTab, setStatTab] = useState("expense");
   const [expandedCat, setExpandedCat] = useState(null);
@@ -2390,9 +2285,8 @@ function StatisticCard({ scopedTxns, cats, income, expense, currency, onViewSubc
   );
 }
 
-/* ─────────────  CASHFLOW CARD (week area view / year butterfly view)  ───────────── */
 function CashflowCard({ txns, currency, scope }) {
-  const [visual, setVisual] = useState(1); // 1 = area chart, 2 = butterfly bar chart
+  const [visual, setVisual] = useState(1);
   const totalBalance = txns.reduce((s, t) => s + t.amount, 0);
 
   const daily = useMemo(() => {
@@ -2420,14 +2314,10 @@ function CashflowCard({ txns, currency, scope }) {
     return keys.map((key) => ({ key, label: monthLabel(key), Income: byMonth[key]?.Income || 0, Expense: byMonth[key]?.Expense || 0 }));
   }, [txns, scope]);
 
-  // Beyond ~3 months, per-day points make for a cluttered, unevenly-ticked x-axis — group by month instead.
   const isDailyView = visual === 1 && daily.length <= 92;
   const data = isDailyView ? daily : monthly;
   const hasData = data.some((d) => d.Income || d.Expense);
-  // Skip alternating labels once there are enough points that every tick would crowd/overlap.
   const tickInterval = data.length > 8 ? Math.ceil(data.length / 7) - 1 : 0;
-  // Mobile has much less width per tick — needs shorter label text ("11" / "Jul" instead of
-  // "Jul 11" / "Jul 2024") and more aggressive tick-skipping, or labels overlap regardless of count.
   const mobileTickInterval = data.length > 4 ? Math.ceil(data.length / 4) - 1 : 0;
   const mobileTickFormatter = (v) => {
     const parts = v.split(" ");
@@ -2501,9 +2391,6 @@ function CashflowCard({ txns, currency, scope }) {
             </ResponsiveContainer>
           </div>
 
-          {/* Mobile: shorter tick text ("11"/"Jul" instead of "Jul 11"/"Jul 2024") plus more
-              aggressive tick-skipping — full labels overlap regardless of point count on a
-              narrow screen. The tooltip still reads from the untouched full "label" field. */}
           <div className="mobileOnly" style={{ width: "100%", height: 260 }}>
             <ResponsiveContainer>
               {visual === 1 ? (
@@ -2548,7 +2435,6 @@ function CashflowCard({ txns, currency, scope }) {
   );
 }
 
-/* ─────────────  SAVING PLANS CARD  ───────────── */
 function SavingPlansCard({ txns, savings, onAddPlans, currency }) {
   const withProgress = savings.map((s) => {
     const current = txns.filter((t) => t.savingSpaceId === s.id).reduce((sum, t) => sum + Math.abs(t.amount), 0);
@@ -2585,7 +2471,6 @@ function SavingPlansCard({ txns, savings, onAddPlans, currency }) {
   );
 }
 
-/* ─────────────  FINANCE SCORE CARD  ───────────── */
 function FinanceScoreCard({ txns, budgets, scope }) {
   const scopedTxns = txns.filter((t) => inScope(t.date, scope));
   const income = scopedTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -2627,7 +2512,6 @@ function FinanceScoreCard({ txns, budgets, scope }) {
   );
 }
 
-/* ───────────────────────  STATISTICS (full breakdown page)  ─────────────────────── */
 function Statistics({ txns, cats, scope, currency, budgets, wallets, onViewSubcategory }) {
   const scopedTxns = txns.filter((t) => inScope(t.date, scope));
   const income = scopedTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -2661,7 +2545,6 @@ function Statistics({ txns, cats, scope, currency, budgets, wallets, onViewSubca
   );
 }
 
-/* ─────────────  DAILY LIMIT CARD (in stat row)  ───────────── */
 function DailyLimitCard({ txns, dailyLimit, onSetLimit, currency }) {
   const todayStr = iso(new Date());
   const spentToday = -txns.filter((t) => t.date === todayStr && t.amount < 0).reduce((s, t) => s + t.amount, 0);
@@ -2697,13 +2580,9 @@ function DailyLimitCard({ txns, dailyLimit, onSetLimit, currency }) {
   );
 }
 
-/* ─────────────  BURN RATE HEATMAP (github-style calendar of daily spend)  ───────────── */
 function BurnRateHeatmap({ txns, currency }) {
   const year = new Date().getFullYear();
   const todayStr = iso(new Date());
-  /* Sized so the full 53-week grid fits without horizontal scroll next to the (now narrower)
-     Daily Limit card on a typical ~1280px desktop screen — 12px cells needed ~815px including
-     row labels, but the sidebar (236px) plus card padding leaves only ~700px there in practice. */
   const cell = 9, gap = 2;
 
   const spendByDay = useMemo(() => {
@@ -2727,8 +2606,6 @@ function BurnRateHeatmap({ txns, currency }) {
     if (v <= thresholds.q75) return 3;
     return 4;
   };
-  // Fixed light-to-dark red scale (not theme-reactive) so "no spend" always reads as the
-  // lightest cell and "high spend" the darkest, regardless of light/dark app theme.
   const bucketColor = ["#FDE2E6", "#F8B4C0", "#F2748A", "#C23A52", "#7A1F30"];
 
   const weeks = useMemo(() => {
@@ -2764,13 +2641,7 @@ function BurnRateHeatmap({ txns, currency }) {
 
   const rowLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  /* Full 53-week grid can't fit any phone width without horizontal scrolling, which reads badly
-     as a "swipe to see the chart" experience. Mobile instead gets a condensed recent-weeks grid
-     (bigger cells, no scroll needed); desktop keeps the full-year view. */
   const MOBILE_WEEKS = 20;
-  /* `weeks` spans the full calendar year (Jan–Dec), so slicing from the end grabs the year's last
-     weeks — usually still in the future relative to today, showing an empty-looking grid. Slice
-     around today's actual week instead. */
   const todayWeekIndex = weeks.findIndex((week) => week.includes(todayStr));
   const mobileWeeks = todayWeekIndex === -1
     ? weeks.slice(-MOBILE_WEEKS)
@@ -2859,8 +2730,6 @@ function RecentTxnsTable({ txns, catColor, currency }) {
   if (txns.length === 0) return <Empty msg="No transactions in this range." />;
   return (
     <>
-      {/* Mobile: plain stacked rows — a table just becomes a tiny horizontally-scrolling strip
-          on a narrow screen, so it's swapped for the same row layout used on Transactions. */}
       <div className="mobileOnly">
         {txns.map((t) => (
           <div key={t.id} className="txnRow" style={S.txnRow}>
@@ -2917,7 +2786,6 @@ function RecentTxnsTable({ txns, catColor, currency }) {
   );
 }
 
-/* ───────────────────────  WALLETS  ─────────────────────── */
 function Wallets({ txns, wallets, scope, currency, onAddWallet }) {
   const withBalance = wallets.map((w) => {
     const walletTxns = txns.filter((t) => t.walletId === w.id);
@@ -2986,7 +2854,6 @@ function Wallets({ txns, wallets, scope, currency, onAddWallet }) {
   );
 }
 
-/* ───────────────────────  BUDGETS  ─────────────────────── */
 function Budgets({ txns, budgets, catColor, currency, onEditBudget, onDeleteBudget }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   if (budgets.length === 0) {
@@ -3071,10 +2938,7 @@ function Budgets({ txns, budgets, catColor, currency, onEditBudget, onDeleteBudg
   );
 }
 
-/* ───────────────────────  SAVING SPACES  ─────────────────────── */
 function SavingSpaces({ txns, savings, currency, onAddGoal, onEditSaving, onDeleteSaving }) {
-  // A goal is a running total toward a target — it isn't a "this period" number, so it always
-  // reflects every contribution ever made, regardless of the dashboard's date filter.
   const withProgress = savings.map((s) => {
     const current = txns.filter((t) => t.savingSpaceId === s.id).reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const pct = s.target > 0 ? Math.min(100, (current / s.target) * 100) : 0;
@@ -3155,7 +3019,6 @@ function SavingSpaces({ txns, savings, currency, onAddGoal, onEditSaving, onDele
   );
 }
 
-/* ───────────────────────  FORECAST  ─────────────────────── */
 function Forecast({ txns, currency }) {
   const months = [...new Set(txns.map((t) => t.date.slice(0, 7)))].sort();
   const series = months.map((m) => {
@@ -3181,12 +3044,8 @@ function Forecast({ txns, currency }) {
     }
   }
   const combined = [...series, ...projected];
-  // Skip alternating labels once there are enough bars that every tick would crowd/overlap.
   const tickInterval = combined.length > 8 ? Math.ceil(combined.length / 7) - 1 : 0;
 
-  // The full history (potentially 20+ months) can't fit readable labels on a phone screen no
-  // matter the tick-skipping — mobile gets a shorter trailing window instead; desktop keeps
-  // the full chart since it has the width to space labels out.
   const MOBILE_MONTHS = 5;
   const mobileSeries = series.slice(-MOBILE_MONTHS);
   const mobileCombined = [...mobileSeries, ...projected];
@@ -3235,7 +3094,6 @@ function Forecast({ txns, currency }) {
   );
 }
 
-/* ───────────────────────  COMING SOON  ─────────────────────── */
 function ComingSoon({ title, blurb }) {
   return (
     <main style={S.main}>
@@ -3248,20 +3106,13 @@ function ComingSoon({ title, blurb }) {
   );
 }
 
-/* ───────────────────────  TRANSACTIONS  ─────────────────────── */
-/* Delete is an explicit tap-to-confirm (X → "Delete this transaction? Cancel/Delete") rather than a
-   swipe gesture — swipe-to-reveal was hard to discover and its red reveal color showed at rest. */
 function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, setSearch, currency, presetFilter, onConsumePresetFilter, onQuickAdd }) {
   const [fHead, setFHead] = useState(presetFilter?.head || "all");
   const [fSub, setFSub] = useState(presetFilter?.sub || "all");
   const [fType, setFType] = useState(presetFilter?.type || "all");
   const [confirmDeleteTxn, setConfirmDeleteTxn] = useState(null);
-  // Mobile-only search entry point — the topbar's search box is desktop-only, so this page needs
-  // its own way in to find a transaction by note text on a phone.
   const [searchOpen, setSearchOpen] = useState(false);
 
-  // Consume the incoming preset exactly once per mount so a later plain visit to this tab (without
-  // clicking a subcategory again) isn't stuck re-applying a stale filter.
   useEffect(() => { if (presetFilter) onConsumePresetFilter(); }, []);
 
   const subOptions = fHead !== "all" ? cats.subcats[fHead] || [] : [];
@@ -3281,7 +3132,7 @@ function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, s
     [...filtered].sort((a, b) => b.date.localeCompare(a.date)).forEach((t) => { (g[t.date] = g[t.date] || []).push(t); });
     return g;
   }, [filtered]);
-  const dateKeys = Object.keys(byDate); // insertion order already newest-first
+  const dateKeys = Object.keys(byDate);
   const PAGE_SIZE = 30;
   const [visibleDays, setVisibleDays] = useState(PAGE_SIZE);
   useEffect(() => { setVisibleDays(PAGE_SIZE); }, [scope, fHead, fSub, fType, search]);
@@ -3307,7 +3158,7 @@ function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, s
         </div>
         {search && (
           <div style={S.activeSearchPill}>
-            Searching “{search}” <button onClick={() => { setSearch(""); setSearchOpen(false); }} aria-label="Clear search" style={S.activeSearchClear}>✕</button>
+            Searching "{search}" <button onClick={() => { setSearch(""); setSearchOpen(false); }} aria-label="Clear search" style={S.activeSearchClear}>✕</button>
           </div>
         )}
         <FilterPicker value={fHead} placeholderLabel="All categories"
@@ -3395,7 +3246,6 @@ function Transactions({ txns, cats, catColor, onEdit, onDelete, scope, search, s
   );
 }
 
-/* ─────────────  TXN FORM (add + edit share this)  ───────────── */
 function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings, currency, embedded }) {
   const isEdit = !!initial;
   const today = new Date().toISOString().slice(0, 10);
@@ -3528,7 +3378,6 @@ function TxnForm({ cats, initial, onSave, onDelete, presetType, wallets, savings
   );
 }
 
-/* ───────────────────────  SETTINGS  ─────────────────────── */
 const SETTINGS_TABS = [
   { key: "profile", label: "Profile" },
   { key: "limit", label: "Daily limit" },
@@ -3548,8 +3397,8 @@ function Settings({
   const [dailyLimitInput, setDailyLimitInput] = useState(String(dailyLimit || ""));
   const [newHeadColor, setNewHeadColor] = useState("#4A90A4");
   const [newHeadKind, setNewHeadKind] = useState("expense");
-  const [newSub, setNewSub] = useState({}); // {headName: text}
-  const [renaming, setRenaming] = useState(null); // {kind:'head'|'sub'|'wallet'|'saving', ...}
+  const [newSub, setNewSub] = useState({});
+  const [renaming, setRenaming] = useState(null);
   const [msg, setMsg] = useState("");
   const [confirmDeleteBudget, setConfirmDeleteBudget] = useState(null);
   const [confirmDeleteSaving, setConfirmDeleteSaving] = useState(null);
@@ -3561,7 +3410,7 @@ function Settings({
     if (next.has(name)) next.delete(name); else next.add(name);
     return next;
   });
-  const [mergePreview, setMergePreview] = useState(null); // array of {from, to} or null
+  const [mergePreview, setMergePreview] = useState(null);
 
   const scanForMiscategorized = () => {
     const merges = findMiscategorizedMerges(cats);
@@ -3575,7 +3424,7 @@ function Settings({
     setMergePreview(null);
   };
 
-  const [structurePreview, setStructurePreview] = useState(null); // { cats, txns, budgets, kept } or null
+  const [structurePreview, setStructurePreview] = useState(null);
   const previewNewStructure = () => setStructurePreview(migrateToNewCategoryStructure(cats, txns, budgets));
   const applyNewStructure = () => {
     persistCats(structurePreview.cats); persistTxns(structurePreview.txns); persistBudgets(structurePreview.budgets);
@@ -4070,7 +3919,6 @@ function Settings({
   );
 }
 
-/* ───────────────────────  PROFILE FIELDS (embedded in Settings)  ─────────────────────── */
 const DOB_DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 const DOB_YEARS = Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i);
 
@@ -4100,8 +3948,6 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
     setSaved(true); setTimeout(() => setSaved(false), 1800);
   };
 
-  // Theme applies immediately on tap rather than waiting for "Update my settings" — flipping
-  // light/dark is an instant, low-stakes preference, not a form field you'd want to "cancel".
   const setTheme = (value) => {
     set({ theme: value });
     persistProfile({ ...form, theme: value });
@@ -4226,7 +4072,6 @@ function ProfileFields({ profile, persistProfile, onResetData, txns, wallets, cu
   );
 }
 
-/* ───────────  EXPORT DATA MODAL FORM  ─────────── */
 function ExportDataForm({ txns, wallets, currency, onClose }) {
   const [walletId, setWalletId] = useState("all");
   const [period, setPeriod] = useState("all");
@@ -4295,12 +4140,11 @@ function ExportDataForm({ txns, wallets, currency, onClose }) {
   );
 }
 
-/* ───────────  IMPORT DATA MODAL FORM  ─────────── */
 function ImportDataForm({ cats, wallets, txns, persistCats, persistTxns, onClose }) {
   const [fileName, setFileName] = useState("");
-  const [status, setStatus] = useState(""); // "" | "parsing" | "ready" | "error" | "done"
+  const [status, setStatus] = useState("");
   const [errMsg, setErrMsg] = useState("");
-  const [result, setResult] = useState(null); // { txns, errors, newHeads, newSubcats, defaultedWallets, cats }
+  const [result, setResult] = useState(null);
   const fileInputRef = useRef(null);
 
   const pickFile = () => fileInputRef.current?.click();
@@ -4384,7 +4228,6 @@ function ImportDataForm({ cats, wallets, txns, persistCats, persistTxns, onClose
   );
 }
 
-/* ───────────────────────  SMALL PIECES  ─────────────────────── */
 function Modal({ children, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -4401,7 +4244,7 @@ function Modal({ children, onClose }) {
     </div>
   );
 }
-/* Curated coolors.co-style palette — every value a distinct hue so no two suggestions read alike. */
+
 const SWATCHES = [
   "#2E9B8F", "#4A90A4", "#5B8DEF", "#118AB2",
   "#06D6A0", "#4FB878", "#7FE6A0", "#8FA88E",
@@ -4410,7 +4253,6 @@ const SWATCHES = [
   "#A97FC0", "#C77DFF", "#073B4C", "#00BBF9",
 ];
 
-/* ─────────  color-space helpers (hex ⇄ hsv) for the wheel picker  ───────── */
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
 function hexToRgb(hex) {
   const m = hex.replace("#", "");
@@ -4444,7 +4286,6 @@ function hsvToRgb(h, s, v) {
 const hexToHsv = (hex) => (/^#[0-9A-Fa-f]{6}$/.test(hex) ? (({ r, g, b }) => rgbToHsv(r, g, b))(hexToRgb(hex)) : { h: 0, s: 0, v: 0 });
 const hsvToHex = (h, s, v) => (({ r, g, b }) => rgbToHex(r, g, b))(hsvToRgb(h, s, v));
 
-/* ─────────  draggable saturation/value square + hue slider  ───────── */
 function ColorWheel({ hex, onChange }) {
   const [hsv, setHsv] = useState(() => hexToHsv(hex));
   const lastEmitted = useRef(hex);
@@ -4464,7 +4305,7 @@ function ColorWheel({ hex, onChange }) {
       lastEmitted.current = h;
       onChange(h);
     }
-  }, [hsv]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hsv]);
 
   const dragSquare = (e) => {
     const rect = squareRef.current.getBoundingClientRect();
@@ -4500,7 +4341,7 @@ function ColorWheel({ hex, onChange }) {
 
 function ColorPicker({ value, onChange, title, usedColors }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState("suggested"); // "suggested" | "wheel"
+  const [mode, setMode] = useState("suggested");
   const [hex, setHex] = useState(value);
 
   const openPicker = () => { setHex(value); setOpen(true); };
@@ -4598,8 +4439,6 @@ function Empty({ msg }) {
 function Skel({ w, h, r = 10, style }) {
   return <div className="skel" style={{ width: w, height: h, borderRadius: r, ...style }} />;
 }
-/* Shown while the initial Supabase read is in flight, shaped like the real dashboard so the
-   transition into real content doesn't jump around. */
 function SkeletonDashboard() {
   return (
     <div className="appShell">
@@ -4635,7 +4474,6 @@ function Tip({ active, payload, label, currency = "PKR" }) {
   );
 }
 
-/* ───────────────────────  STYLES  ─────────────────────── */
 const FONT_DISPLAY = "'Ubuntu','Segoe UI',sans-serif";
 const FONT_BODY = "'Ubuntu','Segoe UI',sans-serif";
 
@@ -4653,27 +4491,16 @@ const CSS = `
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  /* Surfaces step up clearly from the base (bg -> surface -> surface2) so cards actually lift off
-     the background instead of blending into it, and the brand accents (mint/gold/rose) are pushed
-     brighter/more saturated than their light-mode values so they still read as "the brand" rather
-     than washed-out pastel-on-dark. */
   --bg: #0A1712; --sidebar: #071009; --surface: #16281F; --surface2: #213A2B; --line: #34543E;
   --dark: #17392A; --darkSoft: #A8E6BE; --deepGreen: #2A5A40; --mint: #6EF2A6; --mintSoft: #1E4531;
   --gold: #F0BB4C; --goldSoft: #423114; --rose: #FF8A99; --roseSoft: #442026;
   --text: #F3FAF6; --mut: #B9D8C5; --mut2: #8AAC96;
   color-scheme: dark;
 }
-/* Form controls don't inherit the page font by default in every browser (buttons in particular) —
-   without this, anything styled purely through inline JS objects on a <button> (like the Hub grid
-   tiles) silently falls back to the OS system font instead of the brand typeface. */
 button, input, select, textarea { font-family: inherit; }
-/* Browsers paint a system ButtonFace grey behind any <button> that doesn't set its own
-   background — invisible on the old light theme, but a jarring grey box on dark surfaces. */
 button { background: none; color: inherit; }
 html, body, #root { height: 100%; }
 body { margin: 0; overflow-x: hidden; overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; }
-/* Kill the default mobile "tap highlight" rectangle (shows as a flashed blue/gray box on any
-   tappable element) and the focus ring browsers substitute for it on touch. */
 * { -webkit-tap-highlight-color: transparent; }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 @media (hover: none) {
@@ -4681,7 +4508,6 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 }
 body, .appShell { min-height: 100dvh; }
 
-/* ─── Mobile typography scale ─── */
 .pageTitleLg { font-family: ${FONT_DISPLAY}; font-weight: 700; font-size: clamp(28px, 9vw, 40px); line-height: 1.1; letter-spacing: -0.5px; }
 .sectionTitleLg { font-family: ${FONT_DISPLAY}; font-weight: 700; font-size: clamp(20px, 5.5vw, 26px); line-height: 1.15; }
 .amountLg { font-family: ${FONT_DISPLAY}; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
@@ -4723,14 +4549,7 @@ body, .appShell { min-height: 100dvh; }
 .sidebar { width: 236px; flex-shrink: 0; }
 .sidebarNav { display: flex; flex-direction: column; gap: 4px; }
 @media (max-width: 900px) {
-  /* Lock the app shell to exactly one viewport tall and scroll *inside* .mobileMain instead of
-     letting the whole document scroll. Otherwise a fixed bottom bar gets positioned against the
-     browser's "large" viewport (address bar expanded) and sits below the fold — invisible — until
-     the page scrolls enough for the toolbar to auto-collapse. This is scoped to .appShell (not
-     html/body) so other top-level screens like the login page keep normal, safe document scrolling. */
   .appShell { flex-direction: column; height: 100dvh; overflow: hidden; }
-  /* Mobile gets a floating bottom nav + FAB instead of the desktop sidebar. (!important needed —
-     the sidebar's inline style sets display:flex, which otherwise beats this media query.) */
   .sidebar { display: none !important; }
   .mobileMain { height: 100%; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
@@ -4747,12 +4566,9 @@ body, .appShell { min-height: 100dvh; }
   .rangeTriggerLabel { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
-/* ─── Skeleton shimmer (initial load) ─── */
 .skel { background: linear-gradient(90deg, ${T.surface2} 25%, ${T.line} 37%, ${T.surface2} 63%); background-size: 400% 100%; animation: skelShimmer 1.4s ease infinite; }
 @keyframes skelShimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
 
-/* Every existing <Modal> (edit transaction, export/import data, etc.) becomes a real bottom sheet on
-   mobile — same rounded-top / drag-handle / slide-up treatment as the FAB hub and More sheet. */
 @media (max-width: 640px) {
   .modalBack { align-items: flex-end !important; padding: 0 !important; }
   .modalCard {
@@ -4763,7 +4579,6 @@ body, .appShell { min-height: 100dvh; }
   .modalCard > .sheetHandle { margin-bottom: 10px; }
   .stickyFormFooter { position: sticky; bottom: -1px; background: ${T.surface}; padding: 10px 0 2px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; }
 
-  /* Compact dashboard cards on phone — desktop padding/gaps feel oversized and wastes scroll depth. */
   .card { padding: 16px !important; border-radius: 18px !important; margin-bottom: 14px !important; }
   .statCard { padding: 14px !important; border-radius: 16px !important; }
   .statRow { gap: 10px !important; grid-template-columns: repeat(2, 1fr) !important; margin-bottom: 14px !important; }
@@ -4772,16 +4587,12 @@ body, .appShell { min-height: 100dvh; }
   .heroMiniRow { gap: 8px !important; }
   .heroMiniCard { padding: 7px 8px !important; }
 
-  /* Tighter gap between the topbar's filter row and the page content below it on phone —
-     the topbar's own bottom padding plus main's top padding was leaving a large dead gap
-     above "Welcome back". */
   .appTopbar { padding-bottom: 8px !important; gap: 10px !important; }
   main { padding-top: 6px !important; }
   .heroMiniLabel { font-size: 9px !important; letter-spacing: 0.8px !important; }
   .heroMiniValue { font-size: 13px !important; }
 }
 
-/* ─── Single floating round Hub button (bottom-center) — opens the nav Hub sheet ─── */
 .hubNavBtn {
   position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   z-index: 60; width: 58px; height: 58px; border-radius: 50%; background: ${T.dark}; border: none;
@@ -4797,7 +4608,6 @@ body, .appShell { min-height: 100dvh; }
 .hubNavIconLayer.show { opacity: 1; transform: scale(1) rotate(0deg); }
 .hubCard.active { background: ${T.mintSoft}; }
 
-/* ─── Bottom sheet (mobile modal) ─── */
 .sheetBack { position: fixed; inset: 0; background: rgba(16,30,22,0.55); z-index: 100; }
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 101; background: ${T.surface};
@@ -4814,7 +4624,6 @@ body, .appShell { min-height: 100dvh; }
 }
 @keyframes sheetPop { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-/* ─── Mobile FAB hub grid ─── */
 .hubGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 @media (max-width: 380px) { .hubGrid { grid-template-columns: repeat(2, 1fr); } }
 .hubCard {
@@ -4847,8 +4656,6 @@ body, .appShell { min-height: 100dvh; }
 
 .rangePopover { max-width: calc(100vw - 24px); }
 @media (max-width: 700px) {
-  /* Quick-select stays a narrow column on the left; the calendar (which needs the most room)
-     takes the right side — side by side instead of stacked, so nothing scrolls vertically. */
   .rangePopover {
     position: fixed !important; left: 12px !important; right: 12px !important; top: 96px !important;
     width: auto !important; max-width: none !important; flex-direction: row !important;
